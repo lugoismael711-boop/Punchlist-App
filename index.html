@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="theme-color" content="#1f2937" />
+  <meta name="description" content="Create construction punchlists with annotated photos, notes, and contacts. Snap a picture, mark it up, assign it, and check it off when done." />
+  <title>Punchlist</title>
+  <link rel="manifest" href="manifest.webmanifest" />
+  <link rel="icon" href="icons/icon.svg" type="image/svg+xml" />
+  <link rel="apple-touch-icon" href="icons/icon.svg" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="Punchlist" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <!-- ============ APP HEADER ============ -->
+  <header class="app-header">
+    <div class="header-inner">
+      <button class="icon-btn" id="menuBtn" aria-label="Projects menu" title="Projects">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18M3 12h18M3 18h18"/></svg>
+      </button>
+      <div class="header-title">
+        <h1 id="projectName">Punchlist</h1>
+        <span id="projectMeta" class="header-sub"></span>
+      </div>
+      <button class="icon-btn" id="contactsBtn" aria-label="Contacts" title="Contacts">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+      </button>
+    </div>
+    <!-- Filter / progress bar -->
+    <div class="toolbar" id="listToolbar">
+      <div class="filters" role="tablist" aria-label="Filter items">
+        <button class="chip active" data-filter="all" role="tab">All</button>
+        <button class="chip" data-filter="open" role="tab">Open</button>
+        <button class="chip" data-filter="done" role="tab">Done</button>
+      </div>
+      <div class="progress-wrap" title="Completion">
+        <div class="progress-bar"><span id="progressFill"></span></div>
+        <span id="progressText" class="progress-text">0/0</span>
+      </div>
+    </div>
+  </header>
+
+  <!-- ============ ITEM LIST ============ -->
+  <main class="content" id="listView">
+    <ul id="itemList" class="item-list"></ul>
+    <div id="emptyState" class="empty-state hidden">
+      <svg viewBox="0 0 24 24" class="empty-icon" aria-hidden="true"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+      <h2>No items yet</h2>
+      <p>Tap the camera button to snap a photo and add your first punchlist item.</p>
+    </div>
+  </main>
+
+  <!-- ============ FLOATING ACTION BUTTONS ============ -->
+  <div class="fab-group">
+    <button class="fab fab-secondary" id="addNoteBtn" aria-label="Add item without photo" title="Add item without photo">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+    </button>
+    <button class="fab fab-primary" id="addPhotoBtn" aria-label="Add item with photo" title="Take / choose photo">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+    </button>
+  </div>
+
+  <!-- Hidden file input used to capture / pick a photo -->
+  <input type="file" id="photoInput" accept="image/*" capture="environment" hidden />
+
+  <!-- ============ PROJECTS DRAWER ============ -->
+  <div class="drawer-scrim" id="drawerScrim" hidden></div>
+  <aside class="drawer" id="projectsDrawer" aria-hidden="true">
+    <div class="drawer-head">
+      <h2>Punchlists</h2>
+      <button class="icon-btn" id="closeDrawer" aria-label="Close">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6L6 18M6 6l12 12"/></svg>
+      </button>
+    </div>
+    <ul id="projectList" class="project-list"></ul>
+    <button class="btn-block" id="newProjectBtn">+ New Punchlist</button>
+    <div class="drawer-footer">
+      <button class="link-btn" id="exportBtn">Export backup</button>
+      <button class="link-btn" id="importBtn">Import backup</button>
+      <input type="file" id="importInput" accept="application/json" hidden />
+    </div>
+  </aside>
+
+  <!-- ============ MODAL ROOT (dialogs injected here) ============ -->
+  <div id="modalRoot"></div>
+
+  <!-- Toast -->
+  <div id="toast" class="toast" hidden></div>
+
+  <script src="app.js"></script>
+</body>
+</html>
