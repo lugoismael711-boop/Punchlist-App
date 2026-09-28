@@ -23,9 +23,9 @@
   const defaultData = () => {
     const pid = uid();
     return {
-      version: 2,
+      version: 3,
       activeProjectId: pid,
-      projects: [{ id: pid, name: 'My First Punchlist', location: '', createdAt: Date.now() }],
+      projects: [{ id: pid, name: 'My First Punchlist', location: '', createdAt: Date.now(), plans: [], nextNum: 1 }],
       items: [],
       contacts: [],
     };
@@ -46,12 +46,32 @@
   }
   // Bring older/imported items up to the current schema
   function migrateItems() {
+    (data.projects || []).forEach(p => {
+      if (!Array.isArray(p.plans)) p.plans = [];
+      if (typeof p.nextNum !== 'number') p.nextNum = 1;
+    });
     (data.items || []).forEach(it => {
       if (!STATUSES.some(s => s.key === it.status)) it.status = 'open';
       if (it.dueDate === undefined) it.dueDate = '';
       if (it.category === undefined) it.category = '';
+      if (it.planId === undefined) it.planId = '';
+      if (it.pinX === undefined) it.pinX = null;
+      if (it.pinY === undefined) it.pinY = null;
+    });
+    // Assign stable per-project item numbers where missing
+    (data.projects || []).forEach(p => {
+      const its = (data.items || []).filter(i => i.projectId === p.id).sort((a, b) => a.createdAt - b.createdAt);
+      let maxNum = its.reduce((m, i) => Math.max(m, i.num || 0), 0);
+      its.forEach(i => { if (!i.num) i.num = ++maxNum; });
+      p.nextNum = Math.max(p.nextNum || 1, maxNum + 1);
     });
   }
+  // Reserve the next item number for the active project
+  function takeNum(projectId) {
+    const p = data.projects.find(x => x.id === projectId) || activeProject();
+    const n = p.nextNum || 1; p.nextNum = n + 1; return n;
+  }
+  const planById = (proj, id) => (proj.plans || []).find(pl => pl.id === id);
   function save() {
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
@@ -155,7 +175,9 @@
     }
 
     const body = el('div', 'item-body');
-    body.appendChild(el('div', 'item-title', esc(item.title || 'Untitled item')));
+    const numPrefix = item.num ? `<span style="color:var(--text-dim);font-weight:700">#${item.num}</span> ` : '';
+    const pinMark = item.planId ? ' <span title="On a plan" style="font-size:.8rem">📍</span>' : '';
+    body.appendChild(el('div', 'item-title', numPrefix + esc(item.title || 'Untitled item') + pinMark));
     if (item.notes) body.appendChild(el('div', 'item-notes', esc(item.notes)));
 
     const meta = el('div', 'item-meta');
@@ -217,14 +239,28 @@
   // ============================================================
   //  ITEM editor (create + edit)
   // ============================================================
-  function openItemEditor(id, prefillPhoto) {
+  function openItemEditor(id, prefillPhoto, pin, onSaved, onDeleted) {
     const isNew = !id;
     const item = isNew
-      ? { id: uid(), projectId: data.activeProjectId, title: '', notes: '', photo: '', photoOriginal: '', status: 'open', priority: 'med', assignedTo: '', dueDate: '', category: '', createdAt: Date.now() }
+      ? { id: uid(), projectId: data.activeProjectId, title: '', notes: '', photo: '', photoOriginal: '', status: 'open', priority: 'med', assignedTo: '', dueDate: '', category: '', planId: '', pinX: null, pinY: null, createdAt: Date.now() }
       : Object.assign({}, data.items.find(i => i.id === id));
     if (prefillPhoto) { item.photo = prefillPhoto; item.photoOriginal = prefillPhoto; }
+    if (pin) { item.planId = pin.planId; item.pinX = pin.x; item.pinY = pin.y; }
 
     const body = el('div');
+
+    // location note if pinned to a plan
+    if (item.planId) {
+      const pl = planById(activeProject(), item.planId);
+      if (pl) {
+        const loc = el('div', 'helper', `📍 Pinned on plan: <strong>${esc(pl.name)}</strong>`);
+        loc.style.margin = '0 0 12px';
+        const rm = el('button', 'link-btn', 'remove pin'); rm.style.marginLeft = '8px';
+        rm.addEventListener('click', () => { item.planId = ''; item.pinX = item.pinY = null; loc.remove(); toast('Pin removed on save'); });
+        loc.appendChild(rm);
+        body.appendChild(loc);
+      }
+    }
 
     // photo preview + actions
     const photoWrap = el('div');
@@ -292,7 +328,7 @@
     if (!isNew) {
       const del = el('button', 'btn btn-danger', 'Delete'); del.style.flex = '0 0 auto';
       del.addEventListener('click', () => {
-        if (confirm('Delete this item?')) { data.items = data.items.filter(i => i.id !== item.id); save(); render(); modal.close(); toast('Deleted'); }
+        if (confirm('Delete this item?')) { data.items = data.items.filter(i => i.id !== item.id); save(); render(); modal.close(); if (onDeleted) onDeleted(); toast('Deleted'); }
       });
       foot.appendChild(del);
     }
@@ -306,9 +342,11 @@
       item.category = inCat.value.trim();
       item.assignedTo = selAssign.value;
       item.completedAt = isClosed(item) ? (item.completedAt || Date.now()) : null;
+      if (!item.num) item.num = takeNum(item.projectId);
       const idx = data.items.findIndex(i => i.id === item.id);
       if (idx >= 0) data.items[idx] = item; else data.items.push(item);
       save(); render(); modal.close();
+      if (onSaved) onSaved(item);
       toast(isNew ? 'Item added' : 'Saved');
     });
     foot.appendChild(saveBtn);
@@ -669,17 +707,53 @@
     const cb = el('input'); cb.type = 'checkbox'; cb.id = 'inclPhotos'; cb.checked = true;
     const lbl = el('label', null, 'Include photos'); lbl.htmlFor = 'inclPhotos';
     photoRow.appendChild(cb); photoRow.appendChild(lbl); body.appendChild(photoRow);
+    let planCb = null;
+    if ((activeProject().plans || []).length) {
+      const planRow = el('div', 'checkbox-row');
+      planCb = el('input'); planCb.type = 'checkbox'; planCb.id = 'inclPlans'; planCb.checked = true;
+      const pl2 = el('label', null, 'Include plans with pins'); pl2.htmlFor = 'inclPlans';
+      planRow.appendChild(planCb); planRow.appendChild(pl2); body.appendChild(planRow);
+    }
     const foot = footRow();
-    const dl = el('button', 'btn btn-ghost', 'Download'); dl.addEventListener('click', () => makePDF(scope.value, cb.checked, 'download'));
-    const share = el('button', 'btn btn-primary', 'Share PDF'); share.addEventListener('click', () => makePDF(scope.value, cb.checked, 'share'));
+    const opts = () => ({ scope: scope.value, photos: cb.checked, plans: planCb ? planCb.checked : false });
+    const dl = el('button', 'btn btn-ghost', 'Download'); dl.addEventListener('click', () => makePDF(opts(), 'download'));
+    const share = el('button', 'btn btn-primary', 'Share PDF'); share.addEventListener('click', () => makePDF(opts(), 'share'));
     foot.appendChild(dl); foot.appendChild(share);
     const modal = openSheet('PDF report', body, foot);
     openReport._close = modal.close;
   }
 
-  async function makePDF(scope, includePhotos, mode) {
+  // Draw a plan image with its pins onto a canvas -> { url, w, h }
+  function compositePlan(plan, pins) {
+    return new Promise((res, rej) => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        canvas.width = plan.w; canvas.height = plan.h;
+        const c = canvas.getContext('2d');
+        c.drawImage(img, 0, 0, plan.w, plan.h);
+        const R = Math.max(16, Math.round(plan.w / 55));
+        pins.forEach(it => {
+          const st = statusDef(it.status);
+          const x = it.pinX * plan.w, y = it.pinY * plan.h;
+          c.beginPath(); c.arc(x, y, R, 0, Math.PI * 2);
+          c.fillStyle = st.color; c.fill();
+          c.lineWidth = Math.max(2, R / 7); c.strokeStyle = '#fff'; c.stroke();
+          c.fillStyle = '#fff'; c.font = `bold ${Math.round(R * 1.1)}px Arial`;
+          c.textAlign = 'center'; c.textBaseline = 'middle';
+          c.fillText(String(it.num || '•'), x, y);
+        });
+        res({ url: canvas.toDataURL('image/jpeg', 0.85), w: plan.w, h: plan.h });
+      };
+      img.onerror = rej;
+      img.src = plan.image;
+    });
+  }
+
+  async function makePDF(opts, mode) {
     if (!window.jspdf || !window.jspdf.jsPDF) { toast('PDF engine not loaded'); return; }
     toast('Building PDF…');
+    const { scope, photos: includePhotos } = opts;
     const { jsPDF } = window.jspdf;
     const doc = new jsPDF({ unit: 'pt', format: 'letter' });
     const proj = activeProject();
@@ -713,7 +787,7 @@
       const st = statusDef(it.status);
       // measure text block
       doc.setFont('helvetica', 'bold'); doc.setFontSize(12);
-      const titleLines = doc.splitTextToSize(`${n + 1}. ${it.title || 'Untitled item'}`, CW);
+      const titleLines = doc.splitTextToSize(`#${it.num || (n + 1)}  ${it.title || 'Untitled item'}`, CW);
       doc.setFont('helvetica', 'normal'); doc.setFontSize(9.5);
       const metaBits = [st.label.toUpperCase()];
       if (it.priority && !st.done) metaBits.push(it.priority === 'high' ? 'HIGH' : it.priority === 'low' ? 'LOW' : 'MED');
@@ -757,6 +831,25 @@
       y += 6;
     });
 
+    // ---- plan pages with pins ----
+    if (opts.plans && (proj.plans || []).length) {
+      for (const pl of proj.plans) {
+        const pins = data.items.filter(i => i.projectId === proj.id && i.planId === pl.id && i.pinX != null);
+        let composite;
+        try { composite = await compositePlan(pl, pins); } catch (e) { composite = null; }
+        if (!composite) continue;
+        addFooter(); doc.addPage(); y = M;
+        doc.setFillColor(37, 99, 235); doc.rect(0, 0, PW, 40, 'F');
+        doc.setTextColor(255); doc.setFont('helvetica', 'bold'); doc.setFontSize(13);
+        doc.text('PLAN · ' + pl.name, M, 26);
+        y = 56;
+        const maxW = CW, maxH = PH - y - 40;
+        const r = Math.min(maxW / composite.w, maxH / composite.h);
+        const w = composite.w * r, h = composite.h * r;
+        try { doc.addImage(composite.url, 'JPEG', M + (CW - w) / 2, y, w, h); } catch (e) {}
+      }
+    }
+
     addFooter();
     function addFooter() {
       const pg = doc.internal.getCurrentPageInfo ? doc.internal.getCurrentPageInfo().pageNumber : doc.internal.getNumberOfPages();
@@ -784,6 +877,312 @@
     if (openReport._close) openReport._close();
     toast('PDF ready');
   }
+
+  // ============================================================
+  //  PLANS — floor plans / blueprints with task pins
+  // ============================================================
+  let pdfjsReady = null;
+  function loadPdfJs() {
+    if (pdfjsReady) return pdfjsReady;
+    pdfjsReady = new Promise((res, rej) => {
+      const s = document.createElement('script');
+      s.src = 'vendor/pdf.min.js';
+      s.onload = () => {
+        const lib = window.pdfjsLib;
+        if (!lib) return rej(new Error('pdf.js failed'));
+        lib.GlobalWorkerOptions.workerSrc = 'vendor/pdf.worker.min.js';
+        res(lib);
+      };
+      s.onerror = () => rej(new Error('Could not load PDF engine'));
+      document.head.appendChild(s);
+    });
+    return pdfjsReady;
+  }
+
+  // Render one image or PDF file into a plan image { image, w, h }
+  function fileToPlanImage(file, cb) {
+    if (file.type === 'application/pdf') {
+      toast('Rendering PDF…');
+      const fr = new FileReader();
+      fr.onload = async () => {
+        try {
+          const lib = await loadPdfJs();
+          const pdf = await lib.getDocument({ data: new Uint8Array(fr.result) }).promise;
+          let pageNum = 1;
+          if (pdf.numPages > 1) {
+            const ans = prompt(`This PDF has ${pdf.numPages} pages.\nWhich page (sheet) do you want to add?`, '1');
+            if (ans === null) return;
+            pageNum = Math.min(Math.max(parseInt(ans, 10) || 1, 1), pdf.numPages);
+          }
+          const page = await pdf.getPage(pageNum);
+          let vp = page.getViewport({ scale: 1 });
+          const scale = Math.min(2200 / Math.max(vp.width, vp.height), 3);
+          vp = page.getViewport({ scale });
+          const canvas = document.createElement('canvas');
+          canvas.width = Math.round(vp.width); canvas.height = Math.round(vp.height);
+          const cctx = canvas.getContext('2d');
+          cctx.fillStyle = '#fff'; cctx.fillRect(0, 0, canvas.width, canvas.height);
+          await page.render({ canvasContext: cctx, viewport: vp }).promise;
+          cb({ image: canvas.toDataURL('image/jpeg', 0.82), w: canvas.width, h: canvas.height, page: pageNum });
+        } catch (e) { console.error(e); toast('Could not read that PDF'); }
+      };
+      fr.readAsArrayBuffer(file);
+    } else if (file.type.startsWith('image/')) {
+      readAndResize(file, 2200, dataUrl => {
+        const img = new Image();
+        img.onload = () => cb({ image: dataUrl, w: img.width, h: img.height });
+        img.src = dataUrl;
+      });
+    } else {
+      toast('Please choose an image or PDF');
+    }
+  }
+
+  let planCallback = null;
+  function pickPlanFile(cb) { planCallback = cb; const inp = $('#planInput'); inp.value = ''; inp.click(); }
+  $('#planInput').addEventListener('change', function () {
+    const file = this.files && this.files[0];
+    if (!file) return;
+    const cb = planCallback; planCallback = null;
+    fileToPlanImage(file, plan => { if (cb) cb(plan); });
+  });
+
+  function addPlan(cb) {
+    pickPlanFile(planData => {
+      const proj = activeProject();
+      const defName = planData.page ? `Sheet (p.${planData.page})` : 'Plan ' + ((proj.plans || []).length + 1);
+      const name = (prompt('Name this plan / sheet:', defName) || defName).trim() || defName;
+      const plan = { id: uid(), name, image: planData.image, w: planData.w, h: planData.h, createdAt: Date.now() };
+      proj.plans = proj.plans || [];
+      proj.plans.push(plan);
+      save();
+      toast('Plan added');
+      if (cb) cb(plan);
+    });
+  }
+
+  function openPlans() {
+    const proj = activeProject();
+    let currentPlanId = (proj.plans && proj.plans[0]) ? proj.plans[0].id : null;
+    let addPinMode = false;
+
+    const scrim = el('div', 'plans-scrim');
+    // top bar
+    const top = el('div', 'plans-top');
+    const back = el('button', 'icon-btn', '<svg viewBox="0 0 24 24"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>');
+    back.addEventListener('click', cleanup);
+    const titleWrap = el('div', 'plan-title'); titleWrap.style.display = 'flex'; titleWrap.style.alignItems = 'center'; titleWrap.style.gap = '8px';
+    const menuBtn = el('button', 'icon-btn', '<svg viewBox="0 0 24 24"><circle cx="12" cy="5" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="12" cy="19" r="1.6"/></svg>');
+    menuBtn.addEventListener('click', planMenu);
+    top.appendChild(back); top.appendChild(titleWrap); top.appendChild(menuBtn);
+
+    const stage = el('div', 'plan-stage');
+    const content = el('div', 'plan-content');
+    const imgEl = el('img');
+    content.appendChild(imgEl);
+    stage.appendChild(content);
+
+    const hint = el('div', 'plan-hint'); hint.textContent = 'Tap the plan to drop a pin'; hint.style.display = 'none';
+    stage.appendChild(hint);
+
+    const zoom = el('div', 'zoom-controls');
+    const zin = el('button', 'zoom-btn', '<svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>');
+    const zout = el('button', 'zoom-btn', '<svg viewBox="0 0 24 24"><path d="M5 12h14"/></svg>');
+    const zfit = el('button', 'zoom-btn', '<svg viewBox="0 0 24 24" style="width:20px;height:20px"><path d="M4 9V5a1 1 0 0 1 1-1h4M20 9V5a1 1 0 0 0-1-1h-4M4 15v4a1 1 0 0 0 1 1h4M20 15v4a1 1 0 0 1-1 1h-4"/></svg>');
+    zoom.appendChild(zin); zoom.appendChild(zout); zoom.appendChild(zfit);
+    stage.appendChild(zoom);
+
+    const fabs = el('div', 'plans-fabs');
+    const pinFab = el('button', 'fab fab-primary', '<svg viewBox="0 0 24 24" style="width:26px;height:26px"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>');
+    pinFab.title = 'Drop a task pin';
+    const addPlanFab = el('button', 'fab fab-secondary', '<svg viewBox="0 0 24 24"><path d="M9 3L3 6v15l6-3 6 3 6-3V3l-6 3-6-3z"/><path d="M12 8v6M9 11h6"/></svg>');
+    addPlanFab.title = 'Add another plan';
+    fabs.appendChild(addPlanFab); fabs.appendChild(pinFab);
+    stage.appendChild(fabs);
+
+    const empty = el('div', 'plan-empty');
+    empty.innerHTML = '<div><svg viewBox="0 0 24 24"><path d="M9 3L3 6v15l6-3 6 3 6-3V3l-6 3-6-3z"/><path d="M9 3v15M15 6v15"/></svg><h2 style="color:var(--text)">No plans yet</h2><p>Add a floor plan or blueprint (image or PDF), then tap to drop task pins on it.</p></div>';
+    const emptyBtn = el('button', 'btn btn-primary', 'Add a plan'); emptyBtn.style.maxWidth = '220px'; emptyBtn.style.margin = '16px auto 0';
+    emptyBtn.addEventListener('click', () => addPlan(pl => { currentPlanId = pl.id; buildUI(); }));
+    empty.querySelector('div').appendChild(emptyBtn);
+
+    scrim.appendChild(top);
+    scrim.appendChild(stage);
+    scrim.appendChild(empty);
+    $('#modalRoot').appendChild(scrim);
+
+    // ---- transform state ----
+    let scale = 1, tx = 0, ty = 0;
+    function apply() {
+      content.style.transform = `translate(${tx}px,${ty}px) scale(${scale})`;
+      content.querySelectorAll('.plan-pin').forEach(p => { p.style.transform = `translate(-50%,-100%) scale(${1 / scale})`; });
+    }
+    function curPlan() { return planById(activeProject(), currentPlanId); }
+    function fit() {
+      const pl = curPlan(); if (!pl) return;
+      const r = stage.getBoundingClientRect();
+      scale = Math.min(r.width / pl.w, r.height / pl.h) * 0.96 || 1;
+      tx = (r.width - pl.w * scale) / 2;
+      ty = (r.height - pl.h * scale) / 2;
+      apply();
+    }
+    function zoomBy(factor) {
+      const r = stage.getBoundingClientRect();
+      const cx = r.width / 2, cy = r.height / 2;
+      const ns = Math.min(Math.max(scale * factor, 0.05), 10);
+      const ix = (cx - tx) / scale, iy = (cy - ty) / scale;
+      scale = ns; tx = cx - ix * scale; ty = cy - iy * scale; apply();
+    }
+    zin.addEventListener('click', () => zoomBy(1.3));
+    zout.addEventListener('click', () => zoomBy(1 / 1.3));
+    zfit.addEventListener('click', fit);
+
+    function renderPins() {
+      content.querySelectorAll('.plan-pin').forEach(p => p.remove());
+      const pl = curPlan(); if (!pl) return;
+      data.items.filter(i => i.projectId === proj.id && i.planId === pl.id && i.pinX != null).forEach(it => {
+        const st = statusDef(it.status);
+        const pin = el('div', 'plan-pin st-' + st.key);
+        pin.dataset.itemId = it.id;
+        pin.style.left = (it.pinX * pl.w) + 'px';
+        pin.style.top = (it.pinY * pl.h) + 'px';
+        pin.innerHTML = `<div class="pin-body"><span>${it.num || '•'}</span></div>`;
+        content.appendChild(pin);
+      });
+      apply();
+    }
+
+    function selectPlan(id) {
+      currentPlanId = id;
+      const pl = curPlan(); if (!pl) return;
+      content.style.width = pl.w + 'px'; content.style.height = pl.h + 'px';
+      imgEl.style.width = pl.w + 'px'; imgEl.style.height = pl.h + 'px';
+      imgEl.src = pl.image;
+      renderPins();
+      requestAnimationFrame(fit);
+    }
+
+    function buildUI() {
+      const p = activeProject();
+      const plans = p.plans || [];
+      titleWrap.innerHTML = '';
+      if (!plans.length) {
+        empty.style.display = 'flex'; stage.style.display = 'none';
+        titleWrap.appendChild(el('span', null, 'Plans'));
+        return;
+      }
+      empty.style.display = 'none'; stage.style.display = 'block';
+      if (!plans.some(pl => pl.id === currentPlanId)) currentPlanId = plans[0].id;
+      if (plans.length > 1) {
+        const sel = el('select');
+        plans.forEach(pl => { const o = el('option', null, pl.name); o.value = pl.id; if (pl.id === currentPlanId) o.selected = true; sel.appendChild(o); });
+        sel.addEventListener('change', () => selectPlan(sel.value));
+        titleWrap.appendChild(sel);
+      } else {
+        titleWrap.appendChild(el('span', null, esc(plans[0].name)));
+      }
+      selectPlan(currentPlanId);
+    }
+
+    function setPinMode(on) {
+      addPinMode = on;
+      pinFab.classList.toggle('active-mode', on);
+      hint.style.display = on ? 'block' : 'none';
+    }
+    pinFab.addEventListener('click', () => setPinMode(!addPinMode));
+    addPlanFab.addEventListener('click', () => addPlan(pl => { currentPlanId = pl.id; buildUI(); }));
+
+    function planMenu() {
+      const p = activeProject();
+      const body = el('div');
+      const mk = (label, fn) => { const b = el('button', 'btn-block'); b.textContent = label; b.style.marginTop = '8px'; b.addEventListener('click', () => { m.close(); fn(); }); body.appendChild(b); };
+      mk('+ Add a plan', () => addPlan(pl => { currentPlanId = pl.id; buildUI(); }));
+      if (curPlan()) {
+        mk('Rename this plan', () => { const pl = curPlan(); const n = prompt('Plan name:', pl.name); if (n && n.trim()) { pl.name = n.trim(); save(); buildUI(); } });
+        mk('Delete this plan', () => {
+          const pl = curPlan();
+          if (confirm(`Delete plan "${pl.name}"? Items pinned to it stay in your list but lose their pin.`)) {
+            data.items.forEach(i => { if (i.planId === pl.id) { i.planId = ''; i.pinX = i.pinY = null; } });
+            p.plans = p.plans.filter(x => x.id !== pl.id);
+            currentPlanId = p.plans[0] ? p.plans[0].id : null;
+            save(); render(); buildUI();
+          }
+        });
+      }
+      const m = openSheet('Plan options', body);
+    }
+
+    // ---- gestures ----
+    const pointers = new Map();
+    let single = null, pinch = null;
+    stage.addEventListener('pointerdown', e => {
+      if (empty.style.display === 'flex') return;
+      // let taps on the on-screen controls fire their own click handlers
+      if (e.target.closest('.plans-fabs, .zoom-controls, .plan-hint')) return;
+      stage.setPointerCapture(e.pointerId);
+      pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (pointers.size === 1) {
+        single = { startX: e.clientX, startY: e.clientY, lastX: e.clientX, lastY: e.clientY, moved: false, target: e.target, t: Date.now() };
+        pinch = null;
+      } else if (pointers.size === 2) {
+        const pts = [...pointers.values()];
+        pinch = { dist: dist(pts[0], pts[1]), midX: (pts[0].x + pts[1].x) / 2, midY: (pts[0].y + pts[1].y) / 2 };
+        single = null;
+      }
+    });
+    stage.addEventListener('pointermove', e => {
+      if (!pointers.has(e.pointerId)) return;
+      pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (pinch && pointers.size >= 2) {
+        const pts = [...pointers.values()];
+        const nd = dist(pts[0], pts[1]);
+        const nmx = (pts[0].x + pts[1].x) / 2, nmy = (pts[0].y + pts[1].y) / 2;
+        const r = stage.getBoundingClientRect();
+        const factor = nd / (pinch.dist || nd);
+        const ns = Math.min(Math.max(scale * factor, 0.05), 10);
+        const ax = nmx - r.left, ay = nmy - r.top;
+        const ix = (ax - tx) / scale, iy = (ay - ty) / scale;
+        scale = ns; tx = ax - ix * scale + (nmx - pinch.midX); ty = ay - iy * scale + (nmy - pinch.midY);
+        pinch.dist = nd; pinch.midX = nmx; pinch.midY = nmy;
+        apply();
+      } else if (single) {
+        const dx = e.clientX - single.lastX, dy = e.clientY - single.lastY;
+        single.lastX = e.clientX; single.lastY = e.clientY;
+        tx += dx; ty += dy;
+        if (Math.abs(e.clientX - single.startX) + Math.abs(e.clientY - single.startY) > 8) single.moved = true;
+        apply();
+      }
+    });
+    function endPointer(e) {
+      if (!pointers.has(e.pointerId)) return;
+      const wasSingle = single && pointers.size === 1;
+      pointers.delete(e.pointerId);
+      if (wasSingle && !single.moved && Date.now() - single.t < 400) handleTap(single);
+      if (pointers.size < 2) pinch = null;
+      if (pointers.size === 0) single = null;
+    }
+    stage.addEventListener('pointerup', endPointer);
+    stage.addEventListener('pointercancel', endPointer);
+
+    function handleTap(s) {
+      const pinEl = s.target.closest && s.target.closest('.plan-pin');
+      if (pinEl) { openItemEditor(pinEl.dataset.itemId, null, null, () => renderPins(), () => renderPins()); return; }
+      if (!addPinMode) return;
+      const pl = curPlan(); if (!pl) return;
+      const r = stage.getBoundingClientRect();
+      const ax = s.startX - r.left, ay = s.startY - r.top;
+      const fx = ((ax - tx) / scale) / pl.w, fy = ((ay - ty) / scale) / pl.h;
+      if (fx < 0 || fx > 1 || fy < 0 || fy > 1) { toast('Tap on the plan'); return; }
+      setPinMode(false);
+      openItemEditor(null, null, { planId: pl.id, x: fx, y: fy }, () => renderPins(), () => renderPins());
+    }
+
+    window.addEventListener('resize', fit);
+    function cleanup() { window.removeEventListener('resize', fit); scrim.remove(); render(); }
+
+    buildUI();
+  }
+  const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
 
   // ============================================================
   //  Backup export / import
@@ -835,6 +1234,7 @@
     $('#drawerScrim').addEventListener('click', closeDrawer);
     $('#newProjectBtn').addEventListener('click', () => editProject(null));
     $('#contactsBtn').addEventListener('click', openContacts);
+    $('#plansBtn').addEventListener('click', openPlans);
     $('#shareBtn').addEventListener('click', openExport);
 
     $('#exportBtn').addEventListener('click', exportBackup);

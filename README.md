@@ -15,17 +15,23 @@ home screen like a native app and works offline.
   your library) and create a punchlist item from it.
 - ✏️ **Make notes on the picture** — a built-in markup editor lets you draw
   freehand, add arrows, boxes, and text labels right on the photo, then save it.
+- 🗺️ **Plans with task pins** — upload a floor plan or blueprint (**image or
+  PDF**) and drop **numbered task pins** right on the drawing. Pins are colored by
+  status; tap one to open its item. Pinch to zoom and drag to pan. (Tap the map
+  icon in the header.)
 - 🔄 **Task workflow** — each item moves through **Open → In Progress → Done →
   Verified**. Tap the circle on a card to advance the status in the field, or set
-  it (plus **priority**, **due date**, and **trade/category**) in the editor.
+  it (plus **priority**, **due date**, and **trade/category**) in the editor. Each
+  item gets a stable **#number**.
 - ⏰ **Due dates** — set a due date per item; overdue open items are flagged in
   red and float to the top of the list.
 - 🏷️ **Trades / categories** — tag items by trade (Electrical, Plumbing, HVAC, …)
   and filter the list by status.
 - 👥 **Add contacts** — save subs, owners, and teammates (name, company, email,
   phone). Assign items to them.
-- 📄 **PDF reports** — generate a clean, shareable PDF (cover with progress, then
-  each item with photo, status, due date, and notes) to email owners and subs.
+- 📄 **PDF reports** — generate a clean, shareable PDF: a cover with progress,
+  each item (photo, status, due date, notes), and a **plan page per plan with the
+  pins drawn on it** — great for owner walk-throughs and closing out subs.
 - ✉️ **Send directly** — email or share the punchlist (with photos, where your
   device supports it) straight to a contact or any email address.
 - 🗂️ **Multiple punchlists** — keep a separate list per job/unit. Open the menu
@@ -83,6 +89,9 @@ at `https://<user>.github.io/<repo>/`.
 - Data model and everything else lives in [`app.js`](app.js).
 - PDF reports are generated client-side with [jsPDF](https://github.com/parallax/jsPDF)
   (vendored at [`vendor/jspdf.umd.min.js`](vendor/jspdf.umd.min.js), MIT license).
+- PDF **plans** are rendered to images with [pdf.js](https://mozilla.github.io/pdf.js/)
+  (vendored under [`vendor/`](vendor/), Apache-2.0), loaded on demand only when you
+  open a PDF plan.
 - Photos are downscaled to ~1600px and stored as JPEG data URLs in
   `localStorage`. For heavy daily use, export backups periodically — browser
   storage is finite (typically ~5–10MB per site).

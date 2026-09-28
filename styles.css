@@ -183,7 +183,7 @@ svg { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width:
 .link-btn { background: none; border: none; color: var(--primary); font-size: .82rem; font-weight: 600; padding: 6px; }
 
 /* ---------- Modal / sheet ---------- */
-.modal-scrim { position: fixed; inset: 0; background: rgba(0,0,0,.55); z-index: 70; display: flex; align-items: flex-end; justify-content: center; }
+.modal-scrim { position: fixed; inset: 0; background: rgba(0,0,0,.55); z-index: 100; display: flex; align-items: flex-end; justify-content: center; }
 .sheet {
   background: var(--surface); width: 100%; max-width: 640px;
   border-radius: 18px 18px 0 0; box-shadow: var(--shadow);
@@ -221,7 +221,7 @@ svg { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width:
 .mini-btn svg { width: 16px; height: 16px; }
 
 /* ---------- Annotation editor ---------- */
-.annot-scrim { position: fixed; inset: 0; background: #000; z-index: 90; display: flex; flex-direction: column; }
+.annot-scrim { position: fixed; inset: 0; background: #000; z-index: 110; display: flex; flex-direction: column; }
 .annot-top { display: flex; align-items: center; justify-content: space-between; padding: calc(10px + var(--safe-top)) 14px 10px; color: #fff; gap: 8px; }
 .annot-top .link-btn { color: #fff; font-size: .95rem; }
 .annot-stage { flex: 1; display: grid; place-items: center; overflow: hidden; position: relative; }
@@ -232,6 +232,40 @@ svg { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width:
 .color-dot { flex: 0 0 auto; width: 30px; height: 30px; border-radius: 50%; border: 3px solid transparent; }
 .color-dot.active { border-color: #fff; }
 .tool-sep { width: 1px; height: 30px; background: #333; flex: 0 0 auto; margin: 0 2px; }
+
+/* ---------- Plans view ---------- */
+.plans-scrim { position: fixed; inset: 0; background: #0b0f19; z-index: 85; display: flex; flex-direction: column; }
+.plans-top { display: flex; align-items: center; gap: 8px; padding: calc(8px + var(--safe-top)) 10px 8px; background: var(--surface); border-bottom: 1px solid var(--line); }
+.plans-top .plan-title { flex: 1; min-width: 0; font-weight: 700; font-size: 1rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.plans-top select { max-width: 45vw; padding: 8px; border-radius: 8px; border: 1px solid var(--line); background: var(--bg); color: var(--text); font-weight: 600; }
+.plan-stage { flex: 1; position: relative; overflow: hidden; background:
+  repeating-conic-gradient(#0e1524 0% 25%, #0b0f19 0% 50%) 50% / 28px 28px; touch-action: none; }
+.plan-content { position: absolute; top: 0; left: 0; transform-origin: 0 0; will-change: transform; }
+.plan-content img { display: block; -webkit-user-select: none; user-select: none; pointer-events: none; }
+.plan-pin {
+  position: absolute; transform-origin: bottom center; transform: translate(-50%, -100%);
+  display: grid; place-items: center; cursor: pointer; z-index: 2;
+}
+.plan-pin .pin-body {
+  width: 30px; height: 30px; border-radius: 50% 50% 50% 0; transform: rotate(-45deg);
+  background: #64748b; border: 2px solid #fff; box-shadow: 0 2px 5px rgba(0,0,0,.5);
+  display: grid; place-items: center;
+}
+.plan-pin .pin-body span { transform: rotate(45deg); color: #fff; font-size: 12px; font-weight: 800; }
+.plan-pin.st-open .pin-body     { background: #64748b; }
+.plan-pin.st-progress .pin-body { background: #2563eb; }
+.plan-pin.st-done .pin-body     { background: #16a34a; }
+.plan-pin.st-verified .pin-body { background: #7c3aed; }
+
+.plan-empty { flex: 1; display: grid; place-items: center; text-align: center; color: var(--text-dim); padding: 24px; }
+.plan-empty svg { width: 60px; height: 60px; stroke-width: 1.5; color: var(--line); }
+
+.plans-fabs { position: absolute; right: 16px; bottom: calc(20px + var(--safe-bottom)); display: flex; flex-direction: column; gap: 12px; z-index: 4; }
+.plan-hint { position: absolute; left: 50%; transform: translateX(-50%); top: 12px; z-index: 4;
+  background: rgba(37,99,235,.95); color: #fff; padding: 8px 16px; border-radius: 999px; font-size: .85rem; font-weight: 600; box-shadow: var(--shadow); }
+.fab.active-mode { background: var(--accent); }
+.zoom-controls { position: absolute; left: 16px; bottom: calc(20px + var(--safe-bottom)); display: flex; flex-direction: column; gap: 8px; z-index: 4; }
+.zoom-btn { width: 44px; height: 44px; border-radius: 10px; background: var(--surface); border: 1px solid var(--line); color: var(--text); display: grid; place-items: center; box-shadow: var(--shadow); }
 
 /* ---------- Contacts list ---------- */
 .contact-row { display: flex; align-items: center; gap: 12px; padding: 12px; border-radius: 10px; background: var(--surface-2); margin-bottom: 8px; }
@@ -244,7 +278,7 @@ svg { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width:
 /* ---------- Toast ---------- */
 .toast {
   position: fixed; left: 50%; transform: translateX(-50%);
-  bottom: calc(96px + var(--safe-bottom)); z-index: 100;
+  bottom: calc(96px + var(--safe-bottom)); z-index: 130;
   background: #0b1220; color: #fff; border: 1px solid var(--line);
   padding: 12px 18px; border-radius: 999px; font-size: .88rem; box-shadow: var(--shadow);
   max-width: 90vw; text-align: center;

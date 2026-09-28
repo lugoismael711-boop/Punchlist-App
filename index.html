@@ -25,6 +25,9 @@
         <h1 id="projectName">Punchlist</h1>
         <span id="projectMeta" class="header-sub"></span>
       </div>
+      <button class="icon-btn" id="plansBtn" aria-label="Plans" title="Plans">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 3L3 6v15l6-3 6 3 6-3V3l-6 3-6-3z"/><path d="M9 3v15M15 6v15"/></svg>
+      </button>
       <button class="icon-btn" id="shareBtn" aria-label="Export / send" title="Export / send">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/><path d="M16 6l-4-4-4 4"/><path d="M12 2v14"/></svg>
       </button>
@@ -70,6 +73,8 @@
 
   <!-- Hidden file input used to capture / pick a photo -->
   <input type="file" id="photoInput" accept="image/*" capture="environment" hidden />
+  <!-- Hidden file input for plans (image or PDF) -->
+  <input type="file" id="planInput" accept="image/*,application/pdf" hidden />
 
   <!-- ============ PROJECTS DRAWER ============ -->
   <div class="drawer-scrim" id="drawerScrim" hidden></div>
