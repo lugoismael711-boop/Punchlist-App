@@ -37,6 +37,10 @@
     </div>
     <!-- Filter / progress bar -->
     <div class="toolbar" id="listToolbar">
+      <button class="plans-entry" id="plansEntryBtn" aria-label="View floor plans">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 3L3 6v15l6-3 6 3 6-3V3l-6 3-6-3z"/><path d="M9 3v15M15 6v15"/></svg>
+        <span>Plans</span>
+      </button>
       <div class="filters" id="filterChips" role="tablist" aria-label="Filter items">
         <button class="chip active" data-filter="all" role="tab">All</button>
         <button class="chip" data-filter="open" role="tab">Open</button>
@@ -53,11 +57,19 @@
 
   <!-- ============ ITEM LIST ============ -->
   <main class="content" id="listView">
+    <!-- One-time tip pointing at the Plans button -->
+    <div id="planTip" class="plan-tip" hidden>
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 3L3 6v15l6-3 6 3 6-3V3l-6 3-6-3z"/><path d="M9 3v15M15 6v15"/></svg>
+      <div class="plan-tip-text"><strong>New: Floor plans</strong><br>Tap <b>Plans</b> above to add a floor plan or blueprint and drop task pins on it.</div>
+      <button id="planTipClose" class="plan-tip-x" aria-label="Dismiss">
+        <svg viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></svg>
+      </button>
+    </div>
     <ul id="itemList" class="item-list"></ul>
     <div id="emptyState" class="empty-state hidden">
       <svg viewBox="0 0 24 24" class="empty-icon" aria-hidden="true"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
       <h2>No items yet</h2>
-      <p>Tap the camera button to snap a photo and add your first punchlist item.</p>
+      <p>Tap the camera button to snap a photo and add your first item — or tap <b>Plans</b> above to add a floor plan and drop task pins on it.</p>
     </div>
   </main>
 

@@ -962,6 +962,8 @@
   }
 
   function openPlans() {
+    const tip = $('#planTip');
+    if (tip && !tip.hidden) { tip.hidden = true; try { localStorage.setItem('punchlist.tipPlans', '1'); } catch (e) {} }
     const proj = activeProject();
     let currentPlanId = (proj.plans && proj.plans[0]) ? proj.plans[0].id : null;
     let addPinMode = false;
@@ -1235,7 +1237,17 @@
     $('#newProjectBtn').addEventListener('click', () => editProject(null));
     $('#contactsBtn').addEventListener('click', openContacts);
     $('#plansBtn').addEventListener('click', openPlans);
+    $('#plansEntryBtn').addEventListener('click', openPlans);
     $('#shareBtn').addEventListener('click', openExport);
+
+    // One-time tip highlighting the Plans button
+    try {
+      if (!localStorage.getItem('punchlist.tipPlans')) $('#planTip').hidden = false;
+    } catch (e) {}
+    $('#planTipClose').addEventListener('click', () => {
+      $('#planTip').hidden = true;
+      try { localStorage.setItem('punchlist.tipPlans', '1'); } catch (e) {}
+    });
 
     $('#exportBtn').addEventListener('click', exportBackup);
     $('#importBtn').addEventListener('click', () => $('#importInput').click());
