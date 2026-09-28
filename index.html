@@ -25,16 +25,21 @@
         <h1 id="projectName">Punchlist</h1>
         <span id="projectMeta" class="header-sub"></span>
       </div>
+      <button class="icon-btn" id="shareBtn" aria-label="Export / send" title="Export / send">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/><path d="M16 6l-4-4-4 4"/><path d="M12 2v14"/></svg>
+      </button>
       <button class="icon-btn" id="contactsBtn" aria-label="Contacts" title="Contacts">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg>
       </button>
     </div>
     <!-- Filter / progress bar -->
     <div class="toolbar" id="listToolbar">
-      <div class="filters" role="tablist" aria-label="Filter items">
+      <div class="filters" id="filterChips" role="tablist" aria-label="Filter items">
         <button class="chip active" data-filter="all" role="tab">All</button>
         <button class="chip" data-filter="open" role="tab">Open</button>
+        <button class="chip" data-filter="progress" role="tab">In&nbsp;Progress</button>
         <button class="chip" data-filter="done" role="tab">Done</button>
+        <button class="chip" data-filter="verified" role="tab">Verified</button>
       </div>
       <div class="progress-wrap" title="Completion">
         <div class="progress-bar"><span id="progressFill"></span></div>
@@ -90,6 +95,17 @@
   <!-- Toast -->
   <div id="toast" class="toast" hidden></div>
 
+  <!-- Common trades for the category picker -->
+  <datalist id="tradeList">
+    <option value="General"></option><option value="Concrete"></option><option value="Framing"></option>
+    <option value="Electrical"></option><option value="Plumbing"></option><option value="HVAC"></option>
+    <option value="Drywall"></option><option value="Insulation"></option><option value="Paint"></option>
+    <option value="Flooring"></option><option value="Tile"></option><option value="Roofing"></option>
+    <option value="Windows & Doors"></option><option value="Cabinets"></option><option value="Millwork"></option>
+    <option value="Masonry"></option><option value="Landscaping"></option><option value="Cleanup"></option><option value="Punch"></option>
+  </datalist>
+
+  <script src="vendor/jspdf.umd.min.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

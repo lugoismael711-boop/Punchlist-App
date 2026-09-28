@@ -1,10 +1,11 @@
 /* Punchlist service worker — offline caching of the app shell */
-const CACHE = 'punchlist-v1';
+const CACHE = 'punchlist-v2';
 const ASSETS = [
   './',
   './index.html',
   './styles.css',
   './app.js',
+  './vendor/jspdf.umd.min.js',
   './manifest.webmanifest',
   './icons/icon.svg',
   './icons/icon-maskable.svg',

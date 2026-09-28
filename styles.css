@@ -62,7 +62,9 @@ svg { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width:
   display: flex; align-items: center; gap: 12px;
   padding: 8px 12px 12px;
 }
-.filters { display: flex; gap: 6px; }
+.filters { display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; -ms-overflow-style: none; padding-bottom: 2px; }
+.filters::-webkit-scrollbar { display: none; }
+.chip { white-space: nowrap; flex: 0 0 auto; }
 .chip {
   border: 1px solid var(--line);
   background: transparent; color: var(--text-dim);
@@ -104,6 +106,21 @@ svg { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width:
 .tag.prio-med  { background: rgba(245,158,11,.18); color: #fcd34d; }
 .tag.prio-low  { background: rgba(34,197,94,.16); color: #86efac; }
 .tag.assignee { background: rgba(37,99,235,.18); color: #93c5fd; }
+.tag.cat { background: rgba(148,163,184,.16); color: var(--text-dim); }
+.tag.due { background: rgba(148,163,184,.16); color: var(--text-dim); }
+.tag.due.overdue { background: rgba(239,68,68,.2); color: #fca5a5; }
+/* status badge — colored dot + label */
+.tag.status { color: #fff; }
+.tag.status.st-open     { background: #64748b; }
+.tag.status.st-progress { background: #2563eb; }
+.tag.status.st-done     { background: #16a34a; }
+.tag.status.st-verified { background: #7c3aed; }
+
+/* status ring on the check button */
+.item-check.st-progress { border-color: #3b82f6; color: #3b82f6; }
+.item-check.st-progress svg { width: 12px; height: 12px; }
+.item-check.st-done     { background: #22c55e; border-color: #22c55e; color: #06240f; }
+.item-check.st-verified { background: #7c3aed; border-color: #7c3aed; color: #fff; }
 
 .item-check {
   flex: 0 0 auto; align-self: flex-start;
