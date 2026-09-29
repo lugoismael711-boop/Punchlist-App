@@ -23,11 +23,12 @@
   const defaultData = () => {
     const pid = uid();
     return {
-      version: 3,
+      version: 4,
       activeProjectId: pid,
-      projects: [{ id: pid, name: 'My First Punchlist', location: '', createdAt: Date.now(), plans: [], nextNum: 1 }],
+      projects: [{ id: pid, name: 'My First Punchlist', location: '', number: '', createdAt: Date.now(), plans: [], nextNum: 1 }],
       items: [],
       contacts: [],
+      settings: { companyName: '', preparedBy: '', logo: '' },
     };
   };
 
@@ -46,14 +47,17 @@
   }
   // Bring older/imported items up to the current schema
   function migrateItems() {
+    if (!data.settings) data.settings = { companyName: '', preparedBy: '', logo: '' };
     (data.projects || []).forEach(p => {
       if (!Array.isArray(p.plans)) p.plans = [];
       if (typeof p.nextNum !== 'number') p.nextNum = 1;
+      if (p.number === undefined) p.number = '';
     });
     (data.items || []).forEach(it => {
       if (!STATUSES.some(s => s.key === it.status)) it.status = 'open';
       if (it.dueDate === undefined) it.dueDate = '';
       if (it.category === undefined) it.category = '';
+      if (it.area === undefined) it.area = '';
       if (it.planId === undefined) it.planId = '';
       if (it.pinX === undefined) it.pinX = null;
       if (it.pinY === undefined) it.pinY = null;
@@ -234,6 +238,7 @@
         '<svg viewBox="0 0 24 24" style="width:12px;height:12px"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>' +
         (over ? 'Overdue · ' : 'Due ') + esc(fmtDate(item.dueDate))));
     }
+    if (item.area) meta.appendChild(el('span', 'tag cat', '📍 ' + esc(item.area)));
     if (item.category) meta.appendChild(el('span', 'tag cat', esc(item.category)));
     if (item.assignedTo && contactName(item.assignedTo)) {
       meta.appendChild(el('span', 'tag assignee',
@@ -362,6 +367,11 @@
     fCat.appendChild(inCat); row2.appendChild(fCat);
     body.appendChild(row2);
 
+    // area / room
+    const fArea = el('div', 'field', '<label>Area / room</label>');
+    const inArea = el('input'); inArea.type = 'text'; inArea.setAttribute('list', 'areaList'); inArea.placeholder = 'e.g. Unit 4B — Bathroom'; inArea.value = item.area || '';
+    fArea.appendChild(inArea); body.appendChild(fArea);
+
     // assignee — grouped by contractor / company (the directory)
     const fAssign = el('div', 'field', '<label>Assign to</label>');
     const selAssign = el('select');
@@ -381,6 +391,7 @@
       item.priority = selPrio.value;
       item.dueDate = inDue.value || '';
       item.category = inCat.value.trim();
+      item.area = inArea.value.trim();
       item.assignedTo = selAssign.value;
       item.completedAt = isClosed(item) ? (item.completedAt || Date.now()) : null;
       if (!item.num) item.num = takeNum(item.projectId);
@@ -842,7 +853,7 @@
       b.addEventListener('click', () => { modal.close(); handler(); });
       body.appendChild(b);
     };
-    mkOpt('📄 PDF report', 'A shareable PDF with photos, notes, status & due dates', openReport);
+    mkOpt('📄 Report (PDF / Excel)', 'A branded PDF or an Excel spreadsheet of the punchlist', openReport);
     mkOpt('💬 Text (SMS)', 'Open Messages with the punchlist details filled in', () => openTextSheet(scopedItems('open')));
     mkOpt('✉️ Email / share', 'A summary via email or your share sheet (photos attach where supported)', openSend);
     mkOpt('💾 Export backup', 'Save all your data to a file (move to another device)', exportBackup);
@@ -1039,32 +1050,110 @@
     window.location.href = `mailto:${encodeURIComponent(email)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(itemText(item))}`;
   }
 
-  // ---------- PDF report ----------
+  // ---------- Report / export ----------
+  function pickLogo(cb) {
+    const inp = document.createElement('input'); inp.type = 'file'; inp.accept = 'image/*';
+    inp.addEventListener('change', () => {
+      const f = inp.files && inp.files[0]; if (!f) return;
+      const rd = new FileReader();
+      rd.onload = e => { const img = new Image(); img.onload = () => { const r = Math.min(320 / img.width, 120 / img.height, 1); const c = document.createElement('canvas'); c.width = Math.round(img.width * r); c.height = Math.round(img.height * r); c.getContext('2d').drawImage(img, 0, 0, c.width, c.height); cb(c.toDataURL('image/png')); }; img.src = e.target.result; };
+      rd.readAsDataURL(f);
+    });
+    inp.click();
+  }
+
+  function checkboxRow(labelText, checked) {
+    const row = el('div', 'checkbox-row');
+    const cb = el('input'); cb.type = 'checkbox'; cb.checked = checked;
+    const id = 'cb_' + uid(); cb.id = id;
+    const lbl = el('label', null, labelText); lbl.htmlFor = id;
+    row.appendChild(cb); row.appendChild(lbl);
+    row._cb = cb; return row;
+  }
+
   function openReport() {
+    const proj = activeProject();
+    const S = data.settings;
     const body = el('div');
-    body.appendChild(el('p', 'helper', 'Creates a PDF you can save or email. Great for owner walk-throughs and closing out subs.'));
+    body.appendChild(el('p', 'helper', 'A polished PDF with your company details on top, a summary, and each item. Your company info is remembered.'));
+
+    const fCompany = el('div', 'field', '<label>Company name</label>');
+    const inCompany = el('input'); inCompany.type = 'text'; inCompany.placeholder = 'Your company'; inCompany.value = S.companyName || '';
+    fCompany.appendChild(inCompany); body.appendChild(fCompany);
+
+    const rowB = el('div', 'field-row');
+    const fPrep = el('div', 'field', '<label>Prepared by</label>'); const inPrep = el('input'); inPrep.type = 'text'; inPrep.placeholder = 'Your name'; inPrep.value = S.preparedBy || ''; fPrep.appendChild(inPrep); rowB.appendChild(fPrep);
+    const fNum = el('div', 'field', '<label>Project #</label>'); const inNum = el('input'); inNum.type = 'text'; inNum.placeholder = 'e.g. 2026-014'; inNum.value = proj.number || ''; fNum.appendChild(inNum); rowB.appendChild(fNum);
+    body.appendChild(rowB);
+
+    const fLogo = el('div', 'field', '<label>Logo (optional)</label>');
+    const logoWrap = el('div'); logoWrap.style.display = 'flex'; logoWrap.style.gap = '8px'; logoWrap.style.alignItems = 'center';
+    function refreshLogo() {
+      logoWrap.innerHTML = '';
+      if (S.logo) {
+        const img = el('img'); img.src = S.logo; img.style.height = '40px'; img.style.borderRadius = '6px'; img.style.border = '1px solid var(--line)'; img.style.background = '#fff'; img.style.padding = '2px';
+        logoWrap.appendChild(img);
+        const rm = el('button', 'mini-btn', 'Remove'); rm.style.flex = '0 0 auto'; rm.addEventListener('click', () => { S.logo = ''; save(); refreshLogo(); });
+        logoWrap.appendChild(rm);
+      } else {
+        const add = el('button', 'mini-btn', 'Add logo'); add.style.flex = '0 0 auto';
+        add.addEventListener('click', () => pickLogo(d => { S.logo = d; save(); refreshLogo(); }));
+        logoWrap.appendChild(add);
+      }
+    }
+    refreshLogo(); fLogo.appendChild(logoWrap); body.appendChild(fLogo);
+
     const fScope = el('div', 'field', '<label>Include items</label>');
     const scope = el('select');
     [['open', 'Open / in-progress'], ['all', 'All items'], ['closed', 'Completed only']].forEach(([v, l]) => { const o = el('option', null, l); o.value = v; scope.appendChild(o); });
     fScope.appendChild(scope); body.appendChild(fScope);
-    const photoRow = el('div', 'checkbox-row');
-    const cb = el('input'); cb.type = 'checkbox'; cb.id = 'inclPhotos'; cb.checked = true;
-    const lbl = el('label', null, 'Include photos'); lbl.htmlFor = 'inclPhotos';
-    photoRow.appendChild(cb); photoRow.appendChild(lbl); body.appendChild(photoRow);
-    let planCb = null;
-    if ((activeProject().plans || []).length) {
-      const planRow = el('div', 'checkbox-row');
-      planCb = el('input'); planCb.type = 'checkbox'; planCb.id = 'inclPlans'; planCb.checked = true;
-      const pl2 = el('label', null, 'Include plans with pins'); pl2.htmlFor = 'inclPlans';
-      planRow.appendChild(planCb); planRow.appendChild(pl2); body.appendChild(planRow);
-    }
+
+    const photoRow = checkboxRow('Include photos', true); body.appendChild(photoRow);
+    const areaRow = checkboxRow('Group by area / room', false); body.appendChild(areaRow);
+    let planRow = null;
+    if ((proj.plans || []).length) { planRow = checkboxRow('Include plans with pins', true); body.appendChild(planRow); }
+
+    const persist = () => { S.companyName = inCompany.value.trim(); S.preparedBy = inPrep.value.trim(); proj.number = inNum.value.trim(); save(); };
+    const opts = () => ({ scope: scope.value, photos: photoRow._cb.checked, byArea: areaRow._cb.checked, plans: planRow ? planRow._cb.checked : false });
+
     const foot = footRow();
-    const opts = () => ({ scope: scope.value, photos: cb.checked, plans: planCb ? planCb.checked : false });
-    const dl = el('button', 'btn btn-ghost', 'Download'); dl.addEventListener('click', () => makePDF(opts(), 'download'));
-    const share = el('button', 'btn btn-primary', 'Share PDF'); share.addEventListener('click', () => makePDF(opts(), 'share'));
-    foot.appendChild(dl); foot.appendChild(share);
-    const modal = openSheet('PDF report', body, foot);
+    const xls = el('button', 'btn btn-ghost', 'Excel'); xls.style.flex = '0 0 auto'; xls.addEventListener('click', () => { persist(); exportExcel(scope.value); });
+    const dl = el('button', 'btn btn-ghost', 'PDF'); dl.addEventListener('click', () => { persist(); makePDF(opts(), 'download'); });
+    const share = el('button', 'btn btn-primary', 'Share'); share.addEventListener('click', () => { persist(); makePDF(opts(), 'share'); });
+    foot.appendChild(xls); foot.appendChild(dl); foot.appendChild(share);
+    const modal = openSheet('Report / export', body, foot);
     openReport._close = modal.close;
+  }
+
+  // ---------- Excel export of the list ----------
+  async function exportExcel(scope) {
+    try {
+      const XLSX = await loadXlsx();
+      const proj = activeProject();
+      const items = scopedItems(scope);
+      const rows = items.map(it => ({
+        '#': it.num || '',
+        Title: it.title || '',
+        Status: statusDef(it.status).label,
+        Priority: it.priority === 'high' ? 'High' : it.priority === 'low' ? 'Low' : 'Medium',
+        'Due Date': it.dueDate ? fmtDate(it.dueDate) : '',
+        Trade: it.category || '',
+        'Area / Room': it.area || '',
+        'Assigned To': contactName(it.assignedTo) || '',
+        Notes: it.notes || '',
+      }));
+      const ws = XLSX.utils.json_to_sheet(rows, { header: ['#', 'Title', 'Status', 'Priority', 'Due Date', 'Trade', 'Area / Room', 'Assigned To', 'Notes'] });
+      ws['!cols'] = [{ wch: 4 }, { wch: 30 }, { wch: 12 }, { wch: 9 }, { wch: 13 }, { wch: 14 }, { wch: 18 }, { wch: 18 }, { wch: 40 }];
+      const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, 'Punchlist');
+      const out = XLSX.write(wb, { type: 'array', bookType: 'xlsx' });
+      const blob = new Blob([out], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+      const safe = (proj.name || 'punchlist').replace(/[^a-z0-9]+/gi, '_').slice(0, 40);
+      const url = URL.createObjectURL(blob);
+      const a = el('a'); a.href = url; a.download = `Punchlist_${safe}_${todayStr()}.xlsx`;
+      document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
+      if (openReport._close) openReport._close();
+      toast('Excel file ready');
+    } catch (e) { console.error(e); toast('Could not build the Excel file'); }
   }
 
   // Draw a plan image with its pins onto a canvas -> { url, w, h }
@@ -1101,78 +1190,136 @@
     const { jsPDF } = window.jspdf;
     const doc = new jsPDF({ unit: 'pt', format: 'letter' });
     const proj = activeProject();
-    const items = scopedItems(scope);
+    const S = data.settings || {};
+    let items = scopedItems(scope);
     const all = projectItems(); const closed = all.filter(isClosed).length;
+    const counts = { open: 0, progress: 0, done: 0, verified: 0 };
+    all.forEach(i => { counts[i.status] = (counts[i.status] || 0) + 1; });
 
-    const M = 40, PW = doc.internal.pageSize.getWidth(), PH = doc.internal.pageSize.getHeight();
+    const M = 44, PW = doc.internal.pageSize.getWidth(), PH = doc.internal.pageSize.getHeight();
     const CW = PW - M * 2;
-    let y = M;
+    const rgb = h => [parseInt(h.slice(1, 3), 16), parseInt(h.slice(3, 5), 16), parseInt(h.slice(5, 7), 16)];
+    let y = 0;
 
-    // ---- header band ----
-    doc.setFillColor(37, 99, 235); doc.rect(0, 0, PW, 74, 'F');
-    doc.setTextColor(255); doc.setFont('helvetica', 'bold'); doc.setFontSize(18);
-    doc.text('PUNCHLIST', M, 34);
-    doc.setFont('helvetica', 'normal'); doc.setFontSize(12);
-    doc.text(doc.splitTextToSize(proj.name, CW)[0], M, 54);
-    doc.setFontSize(9);
-    doc.text(new Date().toLocaleDateString(), PW - M, 30, { align: 'right' });
-    doc.text(`${closed}/${all.length} complete`, PW - M, 46, { align: 'right' });
-    y = 92;
-    doc.setTextColor(30);
-    if (proj.location) { doc.setFontSize(10); doc.setTextColor(90); doc.text(proj.location, M, y); y += 16; doc.setTextColor(30); }
-    doc.setDrawColor(220); doc.line(M, y, PW - M, y); y += 18;
-
-    const hexToRgb = h => [parseInt(h.slice(1, 3), 16), parseInt(h.slice(3, 5), 16), parseInt(h.slice(5, 7), 16)];
-    function ensure(h) { if (y + h > PH - M) { addFooter(); doc.addPage(); y = M; } }
-
-    if (!items.length) { doc.setFontSize(11); doc.text('No items in this selection.', M, y); }
-
-    items.forEach((it, n) => {
+    function drawPills(x0, baseY, maxX, pills) {
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(8);
+      let x = x0, yy = baseY; const h = 14, gap = 5;
+      pills.forEach(p => {
+        const w = doc.getTextWidth(p.t) + 12;
+        if (x + w > maxX) { x = x0; yy += h + 4; }
+        doc.setFillColor(p.bg[0], p.bg[1], p.bg[2]); doc.roundedRect(x, yy - h + 3, w, h, 3, 3, 'F');
+        doc.setTextColor(p.fg[0], p.fg[1], p.fg[2]); doc.text(p.t, x + 6, yy);
+        x += w + gap;
+      });
+      return yy;
+    }
+    function pillRows(x0, maxX, pills) {
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(8);
+      let x = x0, rows = 1;
+      pills.forEach(p => { const w = doc.getTextWidth(p.t) + 12; if (x + w > maxX) { x = x0; rows++; } x += w + 5; });
+      return rows;
+    }
+    function itemPills(it, withArea) {
       const st = statusDef(it.status);
-      // measure text block
-      doc.setFont('helvetica', 'bold'); doc.setFontSize(12);
-      const titleLines = doc.splitTextToSize(`#${it.num || (n + 1)}  ${it.title || 'Untitled item'}`, CW);
-      doc.setFont('helvetica', 'normal'); doc.setFontSize(9.5);
-      const metaBits = [st.label.toUpperCase()];
-      if (it.priority && !st.done) metaBits.push(it.priority === 'high' ? 'HIGH' : it.priority === 'low' ? 'LOW' : 'MED');
-      if (it.dueDate) metaBits.push((isOverdue(it) ? 'OVERDUE ' : 'Due ') + fmtDate(it.dueDate));
-      if (it.category) metaBits.push(it.category);
-      const who = contactName(it.assignedTo); if (who) metaBits.push('→ ' + who);
-      const noteLines = it.notes ? doc.splitTextToSize(it.notes, CW) : [];
+      const pills = [{ t: st.label, bg: rgb(st.color), fg: [255, 255, 255] }];
+      if (it.priority && !st.done) { const m = { high: [[254, 226, 226], [185, 28, 28], 'High'], med: [[254, 243, 199], [146, 64, 14], 'Med'], low: [[220, 252, 231], [22, 101, 52], 'Low'] }[it.priority]; if (m) pills.push({ t: m[2], bg: m[0], fg: m[1] }); }
+      if (it.dueDate) { const o = isOverdue(it); pills.push({ t: (o ? 'Overdue ' : 'Due ') + fmtDate(it.dueDate), bg: o ? [254, 226, 226] : [241, 245, 249], fg: o ? [185, 28, 28] : [71, 85, 105] }); }
+      if (it.category) pills.push({ t: it.category, bg: [241, 245, 249], fg: [71, 85, 105] });
+      if (withArea && it.area) pills.push({ t: it.area, bg: [237, 233, 254], fg: [91, 33, 182] });
+      return pills;
+    }
 
-      // photo dims
+    function header() {
+      doc.setFillColor(37, 99, 235); doc.rect(0, 0, PW, 5, 'F');
+      let leftX = M;
+      if (S.logo) { try { const p = doc.getImageProperties(S.logo); const r = Math.min(120 / p.width, 46 / p.height); const w = p.width * r, h = p.height * r; doc.addImage(S.logo, 'PNG', M, 22, w, h); leftX = M + w + 14; } catch (e) {} }
+      doc.setTextColor(17, 24, 39); doc.setFont('helvetica', 'bold'); doc.setFontSize(16);
+      doc.text(S.companyName || 'Punchlist Report', leftX, 36);
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(11); doc.setTextColor(55, 65, 81);
+      doc.text(doc.splitTextToSize(proj.name, CW - 150)[0], leftX, 54);
+      doc.setFontSize(9); doc.setTextColor(120, 128, 140);
+      const sub = []; if (proj.location) sub.push(proj.location); if (proj.number) sub.push('Project #' + proj.number);
+      if (sub.length) doc.text(doc.splitTextToSize(sub.join('    •    '), CW - 150)[0], leftX, 69);
+      doc.setFontSize(9); doc.setTextColor(90, 98, 110);
+      doc.text(new Date().toLocaleDateString(), PW - M, 30, { align: 'right' });
+      if (S.preparedBy) doc.text('By ' + S.preparedBy, PW - M, 44, { align: 'right' });
+      const pct = all.length ? Math.round(closed / all.length * 100) : 0;
+      doc.setTextColor(22, 163, 74); doc.setFont('helvetica', 'bold');
+      doc.text(pct + '% complete', PW - M, 60, { align: 'right' });
+      doc.setFont('helvetica', 'normal');
+      y = 84;
+      doc.setFillColor(230, 233, 238); doc.roundedRect(M, y, CW, 7, 3.5, 3.5, 'F');
+      const pw = all.length ? CW * closed / all.length : 0;
+      if (pw > 0) { doc.setFillColor(22, 163, 74); doc.roundedRect(M, y, Math.max(pw, 4), 7, 3.5, 3.5, 'F'); }
+      y += 20;
+      const sc = [['Open', counts.open, '#64748b'], ['In Progress', counts.progress, '#2563eb'], ['Done', counts.done, '#16a34a'], ['Verified', counts.verified, '#7c3aed']];
+      doc.setFontSize(9); let sx = M;
+      sc.forEach(([lab, n, col]) => {
+        const c = rgb(col);
+        doc.setFillColor(c[0], c[1], c[2]); doc.circle(sx + 3, y - 3, 3, 'F');
+        doc.setTextColor(60, 66, 78); doc.setFont('helvetica', 'bold'); doc.text(String(n), sx + 10, y);
+        const nw = doc.getTextWidth(String(n));
+        doc.setFont('helvetica', 'normal'); doc.setTextColor(110, 118, 130); doc.text(lab, sx + 10 + nw + 4, y);
+        sx += 10 + nw + 4 + doc.getTextWidth(lab) + 18;
+      });
+      y += 14;
+      doc.setDrawColor(226, 230, 235); doc.setLineWidth(1); doc.line(M, y, PW - M, y); y += 16;
+    }
+
+    function ensure(h) { if (y + h > PH - 40) { addFooter(); doc.addPage(); y = M; } }
+
+    header();
+
+    if (opts.byArea) {
+      items = items.slice().sort((a, b) => { const aa = (a.area || '~~~').toLowerCase(), bb = (b.area || '~~~').toLowerCase(); return aa < bb ? -1 : aa > bb ? 1 : 0; });
+    }
+
+    if (!items.length) { doc.setFontSize(11); doc.setTextColor(90, 98, 110); doc.text('No items in this selection.', M, y); }
+
+    let lastArea = null;
+    const PHOTO_W = 148;
+    items.forEach(it => {
+      if (opts.byArea) {
+        const a = it.area || 'Unassigned area';
+        if (a !== lastArea) {
+          lastArea = a; ensure(28);
+          doc.setFont('helvetica', 'bold'); doc.setFontSize(10.5); doc.setTextColor(37, 99, 235);
+          doc.text(a, M, y + 10); y += 16;
+          doc.setDrawColor(210, 220, 245); doc.line(M, y, PW - M, y); y += 12;
+        }
+      }
+      const st = statusDef(it.status);
       let imgW = 0, imgH = 0;
-      if (includePhotos && it.photo) {
-        try {
-          const props = doc.getImageProperties(it.photo);
-          const maxW = Math.min(230, CW), maxH = 175;
-          const r = Math.min(maxW / props.width, maxH / props.height);
-          imgW = props.width * r; imgH = props.height * r;
-        } catch (e) { imgW = imgH = 0; }
-      }
-
-      const textH = titleLines.length * 15 + 14 + noteLines.length * 13;
+      if (includePhotos && it.photo) { try { const p = doc.getImageProperties(it.photo); const r = Math.min(PHOTO_W / p.width, 150 / p.height); imgW = p.width * r; imgH = p.height * r; } catch (e) { imgW = imgH = 0; } }
+      const textW = CW - (imgW ? imgW + 16 : 0);
+      const tx = M + 26;
+      const innerW = M + textW;
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(11.5);
+      const titleLines = doc.splitTextToSize(it.title || 'Untitled item', textW - 26);
+      const pills = itemPills(it, !opts.byArea);
+      const pr = pillRows(tx, innerW, pills);
+      const who = contactName(it.assignedTo);
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(9.5);
+      const noteLines = it.notes ? doc.splitTextToSize(it.notes, textW - 26) : [];
+      const textH = 4 + titleLines.length * 14 + 8 + pr * 18 + 7 + (who ? 13 : 0) + (noteLines.length ? noteLines.length * 12 + 2 : 0);
       const blockH = Math.max(textH, imgH) + 16;
-      ensure(blockH + 8);
+      ensure(blockH);
 
-      // status color chip
-      const [r, g, bl] = hexToRgb(st.color);
-      doc.setFillColor(r, g, bl); doc.roundedRect(M, y - 2, 5, blockH - 8, 2, 2, 'F');
+      const c = rgb(st.color);
+      doc.setFillColor(c[0], c[1], c[2]); doc.circle(M + 9, y + 9, 9, 'F');
+      doc.setTextColor(255, 255, 255); doc.setFont('helvetica', 'bold'); doc.setFontSize(8.5);
+      doc.text(String(it.num || ''), M + 9, y + 12, { align: 'center' });
 
-      const tx = M + 14;
-      doc.setTextColor(20); doc.setFont('helvetica', 'bold'); doc.setFontSize(12);
-      let ty = y + 11; titleLines.forEach(l => { doc.text(l, tx, ty); ty += 15; });
-      doc.setFont('helvetica', 'normal'); doc.setFontSize(9); doc.setTextColor(r, g, bl);
-      doc.text(metaBits.join('   ·   '), tx, ty); ty += 14;
-      if (noteLines.length) { doc.setTextColor(70); doc.setFontSize(9.5); noteLines.forEach(l => { doc.text(l, tx, ty); ty += 13; }); }
+      doc.setTextColor(20, 24, 33); doc.setFont('helvetica', 'bold'); doc.setFontSize(11.5);
+      let ty = y + 12; titleLines.forEach(l => { doc.text(l, tx, ty); ty += 14; });
+      ty = drawPills(tx, ty + 8, innerW, pills) + 15;
+      if (who) { doc.setFont('helvetica', 'normal'); doc.setFontSize(9); doc.setTextColor(90, 98, 110); doc.text('Assigned to: ' + who, tx, ty); ty += 13; }
+      if (noteLines.length) { doc.setFont('helvetica', 'normal'); doc.setFontSize(9.5); doc.setTextColor(70, 78, 90); noteLines.forEach(l => { doc.text(l, tx, ty); ty += 12; }); }
 
-      if (imgW) {
-        try { doc.addImage(it.photo, 'JPEG', PW - M - imgW, y, imgW, imgH); } catch (e) {}
-      }
+      if (imgW) { try { doc.addImage(it.photo, 'JPEG', PW - M - imgW, y, imgW, imgH); doc.setDrawColor(222, 226, 232); doc.setLineWidth(0.7); doc.rect(PW - M - imgW, y, imgW, imgH); } catch (e) {} }
 
       y += blockH;
-      doc.setDrawColor(235); doc.line(M, y - 4, PW - M, y - 4);
-      y += 6;
+      doc.setDrawColor(236, 239, 242); doc.setLineWidth(1); doc.line(M, y - 8, PW - M, y - 8);
     });
 
     // ---- plan pages with pins ----
@@ -1197,9 +1344,10 @@
     addFooter();
     function addFooter() {
       const pg = doc.internal.getCurrentPageInfo ? doc.internal.getCurrentPageInfo().pageNumber : doc.internal.getNumberOfPages();
-      doc.setFontSize(8); doc.setTextColor(150);
-      doc.text('Generated by Punchlist', M, PH - 20);
-      doc.text('Page ' + pg, PW - M, PH - 20, { align: 'right' });
+      doc.setDrawColor(232, 235, 239); doc.setLineWidth(0.7); doc.line(M, PH - 30, PW - M, PH - 30);
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.setTextColor(150, 156, 165);
+      doc.text((S.companyName ? S.companyName + ' · ' : '') + (proj.name || 'Punchlist'), M, PH - 18);
+      doc.text('Page ' + pg, PW - M, PH - 18, { align: 'right' });
     }
 
     const safe = (proj.name || 'punchlist').replace(/[^a-z0-9]+/gi, '_').slice(0, 40);

@@ -31,9 +31,12 @@ home screen like a native app and works offline.
   phone). Assign items to them. **Bulk-import from Excel or CSV** — the columns
   Name, Company/Trade, Email, Phone are detected automatically (a header row is
   optional), with a preview and duplicate-skipping before import.
-- 📄 **PDF reports** — generate a clean, shareable PDF: a cover with progress,
-  each item (photo, status, due date, notes), and a **plan page per plan with the
-  pins drawn on it** — great for owner walk-throughs and closing out subs.
+- 📄 **Professional reports** — generate a branded PDF (your **company name, logo,
+  project #, prepared-by**), a progress summary, colored status/priority/trade/area
+  pills, photos, and a **plan page per plan with pins**. Optionally **group by
+  area/room**. Also **export to Excel** (.xlsx) for records.
+- 🏷️ **Area / room** — tag each item by location (e.g., "Unit 4B — Bathroom") for
+  organized reports.
 - 💬 **Text items with details (and the photo)** — text a single item (or the
   whole list) to a sub or owner with the full details (title #, status, priority,
   due date, trade, notes, assignee) filled in and editable. Tap **📷 Text with
