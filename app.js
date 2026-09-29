@@ -28,6 +28,7 @@
       projects: [{ id: pid, name: 'My First Punchlist', location: '', number: '', createdAt: Date.now(), plans: [], nextNum: 1 }],
       items: [],
       contacts: [],
+      templates: [],
       settings: { companyName: '', preparedBy: '', logo: '' },
     };
   };
@@ -48,6 +49,7 @@
   // Bring older/imported items up to the current schema
   function migrateItems() {
     if (!data.settings) data.settings = { companyName: '', preparedBy: '', logo: '' };
+    if (!Array.isArray(data.templates)) data.templates = [];
     (data.projects || []).forEach(p => {
       if (!Array.isArray(p.plans)) p.plans = [];
       if (typeof p.nextNum !== 'number') p.nextNum = 1;
@@ -58,6 +60,7 @@
       if (it.dueDate === undefined) it.dueDate = '';
       if (it.category === undefined) it.category = '';
       if (it.area === undefined) it.area = '';
+      if (it.donePhoto === undefined) it.donePhoto = '';
       if (it.planId === undefined) it.planId = '';
       if (it.pinX === undefined) it.pinX = null;
       if (it.pinY === undefined) it.pinY = null;
@@ -243,6 +246,7 @@
 
     const meta = el('div', 'item-meta');
     meta.appendChild(el('span', 'tag status st-' + st.key, esc(st.label)));
+    if (item.donePhoto) meta.appendChild(el('span', 'tag', '✅ after photo'));
     if (item.priority && !st.done) {
       const map = { high: ['prio-high', 'High'], med: ['prio-med', 'Medium'], low: ['prio-low', 'Low'] };
       const m = map[item.priority] || map.med;
@@ -308,7 +312,7 @@
   function openItemEditor(id, prefillPhoto, pin, onSaved, onDeleted) {
     const isNew = !id;
     const item = isNew
-      ? { id: uid(), projectId: data.activeProjectId, title: '', notes: '', photo: '', photoOriginal: '', status: 'open', priority: 'med', assignedTo: '', dueDate: '', category: '', planId: '', pinX: null, pinY: null, createdAt: Date.now() }
+      ? { id: uid(), projectId: data.activeProjectId, title: '', notes: '', photo: '', photoOriginal: '', donePhoto: '', status: 'open', priority: 'med', assignedTo: '', dueDate: '', category: '', area: '', planId: '', pinX: null, pinY: null, createdAt: Date.now() }
       : Object.assign({}, data.items.find(i => i.id === id));
     if (prefillPhoto) { item.photo = prefillPhoto; item.photoOriginal = prefillPhoto; }
     if (pin) { item.planId = pin.planId; item.pinX = pin.x; item.pinY = pin.y; }
@@ -328,31 +332,36 @@
       }
     }
 
-    // photo preview + actions
-    const photoWrap = el('div');
-    function refreshPhoto() {
-      photoWrap.innerHTML = '';
-      if (item.photo) {
-        const img = el('img', 'detail-photo'); img.src = item.photo; img.alt = 'Item photo';
-        photoWrap.appendChild(img);
-        const actions = el('div', 'detail-photo-actions');
-        const annBtn = el('button', 'mini-btn', '<svg viewBox="0 0 24 24"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg> Annotate');
-        annBtn.addEventListener('click', () => openAnnotator(item.photoOriginal || item.photo, dataUrl => { item.photo = dataUrl; refreshPhoto(); }, item.annotations, anns => { item.annotations = anns; }));
-        const repBtn = el('button', 'mini-btn', '<svg viewBox="0 0 24 24"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg> Replace');
-        repBtn.addEventListener('click', () => pickPhoto(d => { item.photo = d; item.photoOriginal = d; item.annotations = null; refreshPhoto(); }));
-        const rmBtn = el('button', 'mini-btn', '<svg viewBox="0 0 24 24"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/></svg> Remove');
-        rmBtn.addEventListener('click', () => { item.photo = ''; item.photoOriginal = ''; item.annotations = null; refreshPhoto(); });
-        actions.appendChild(annBtn); actions.appendChild(repBtn); actions.appendChild(rmBtn);
-        photoWrap.appendChild(actions);
-      } else {
-        const addBtn = el('button', 'mini-btn', '<svg viewBox="0 0 24 24"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg> Add photo');
-        addBtn.style.marginBottom = '14px';
-        addBtn.addEventListener('click', () => pickPhoto(d => { item.photo = d; item.photoOriginal = d; item.annotations = null; refreshPhoto(); }));
-        photoWrap.appendChild(addBtn);
+    // Reusable photo field (used for the main "before" photo and the completion "after" photo)
+    function photoField(kPhoto, kOrig, kAnn, labelHtml, addLabel) {
+      const wrap = el('div');
+      if (labelHtml) { const lb = el('div', 'helper'); lb.style.margin = '2px 0 6px'; lb.innerHTML = labelHtml; wrap.appendChild(lb); }
+      const inner = el('div');
+      function refresh() {
+        inner.innerHTML = '';
+        if (item[kPhoto]) {
+          const img = el('img', 'detail-photo'); img.src = item[kPhoto]; img.alt = 'Photo';
+          inner.appendChild(img);
+          const actions = el('div', 'detail-photo-actions');
+          const annBtn = el('button', 'mini-btn', '<svg viewBox="0 0 24 24"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg> Annotate');
+          annBtn.addEventListener('click', () => openAnnotator(item[kOrig] || item[kPhoto], d => { item[kPhoto] = d; refresh(); }, item[kAnn], a => { item[kAnn] = a; }));
+          const repBtn = el('button', 'mini-btn', '<svg viewBox="0 0 24 24"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg> Replace');
+          repBtn.addEventListener('click', () => pickPhoto(d => { item[kPhoto] = d; item[kOrig] = d; item[kAnn] = null; refresh(); }));
+          const rmBtn = el('button', 'mini-btn', '<svg viewBox="0 0 24 24"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/></svg> Remove');
+          rmBtn.addEventListener('click', () => { item[kPhoto] = ''; item[kOrig] = ''; item[kAnn] = null; refresh(); });
+          actions.appendChild(annBtn); actions.appendChild(repBtn); actions.appendChild(rmBtn);
+          inner.appendChild(actions);
+        } else {
+          const addBtn = el('button', 'mini-btn', '<svg viewBox="0 0 24 24"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg> ' + (addLabel || 'Add photo'));
+          addBtn.style.marginBottom = '14px';
+          addBtn.addEventListener('click', () => pickPhoto(d => { item[kPhoto] = d; item[kOrig] = d; item[kAnn] = null; refresh(); }));
+          inner.appendChild(addBtn);
+        }
       }
+      refresh(); wrap.appendChild(inner);
+      return wrap;
     }
-    refreshPhoto();
-    body.appendChild(photoWrap);
+    body.appendChild(photoField('photo', 'photoOriginal', 'annotations', null, 'Add photo'));
 
     const fTitle = el('div', 'field', '<label>Title</label>');
     const inTitle = el('input'); inTitle.type = 'text'; inTitle.placeholder = 'e.g. Touch up paint by window'; inTitle.value = item.title || '';
@@ -373,6 +382,9 @@
     [['high', 'High'], ['med', 'Medium'], ['low', 'Low']].forEach(([v, l]) => { const o = el('option', null, l); o.value = v; if (item.priority === v) o.selected = true; selPrio.appendChild(o); });
     fPrio.appendChild(selPrio); row1.appendChild(fPrio);
     body.appendChild(row1);
+
+    // completion ("after") photo
+    body.appendChild(photoField('donePhoto', 'donePhotoOriginal', 'doneAnnotations', '✅ <b>Completion photo</b> (after the work is done)', 'Add completion photo'));
 
     // due date + category
     const row2 = el('div', 'field-row');
@@ -857,6 +869,80 @@
   }
 
   // ============================================================
+  //  TEMPLATES — reusable checklists
+  // ============================================================
+  function openTemplates() {
+    const body = el('div');
+    body.appendChild(el('p', 'helper', 'Reusable checklists. <b>Apply</b> one to add its items to this punchlist, or save the current list as a template to reuse on the next unit.'));
+    const list = el('div');
+    function renderT() {
+      list.innerHTML = '';
+      if (!data.templates.length) list.appendChild(el('p', 'helper', 'No templates yet.'));
+      data.templates.forEach(t => {
+        const row = el('div', 'contact-row');
+        const info = el('div', 'contact-info');
+        info.innerHTML = `<div class="cn">${esc(t.name)}</div><div class="cc">${t.items.length} item${t.items.length === 1 ? '' : 's'}</div>`;
+        row.appendChild(info);
+        const acts = el('div', 'contact-actions'); acts.style.gap = '6px';
+        const apply = el('button', 'mini-btn', 'Apply'); apply.style.flex = '0 0 auto';
+        apply.addEventListener('click', () => applyTemplate(t));
+        const ed = el('button', 'icon-btn', '<svg viewBox="0 0 24 24" style="width:18px;height:18px"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>');
+        ed.addEventListener('click', () => editTemplate(t, renderT));
+        acts.appendChild(apply); acts.appendChild(ed); row.appendChild(acts); list.appendChild(row);
+      });
+    }
+    renderT(); body.appendChild(list);
+    const saveAs = el('button', 'btn-block', '＋ Save current punchlist as template'); saveAs.style.marginTop = '10px';
+    saveAs.addEventListener('click', () => saveCurrentAsTemplate(renderT));
+    const blank = el('button', 'btn-block', '＋ New blank template'); blank.style.marginTop = '8px';
+    blank.addEventListener('click', () => editTemplate(null, renderT));
+    body.appendChild(saveAs); body.appendChild(blank);
+    const modal = openSheet('Templates', body);
+    openTemplates._close = modal.close;
+  }
+  function applyTemplate(t) {
+    if (!t.items.length) { toast('That template is empty'); return; }
+    const pid = data.activeProjectId;
+    t.items.forEach(s => data.items.push({ id: uid(), projectId: pid, num: takeNum(pid), title: s.title || 'Item', notes: s.notes || '', photo: '', donePhoto: '', status: 'open', priority: s.priority || 'med', assignedTo: '', dueDate: '', category: s.category || '', area: s.area || '', planId: '', pinX: null, pinY: null, createdAt: Date.now() }));
+    save(); render();
+    if (openTemplates._close) openTemplates._close();
+    toast(`Added ${t.items.length} item${t.items.length === 1 ? '' : 's'} from “${t.name}”`);
+  }
+  function saveCurrentAsTemplate(after) {
+    const items = projectItems();
+    if (!items.length) { toast('No items to save'); return; }
+    const name = prompt('Template name:', (activeProject().name || 'Punchlist') + ' checklist');
+    if (name === null) return;
+    data.templates.push({ id: uid(), name: (name.trim() || 'Untitled template'), items: items.map(i => ({ title: i.title, notes: i.notes, priority: i.priority, category: i.category, area: i.area })) });
+    save(); if (after) after(); toast('Template saved');
+  }
+  function editTemplate(t, after) {
+    const isNew = !t; t = t || { id: uid(), name: '', items: [] };
+    const body = el('div');
+    const fN = el('div', 'field', '<label>Template name</label>');
+    const n = el('input'); n.type = 'text'; n.value = t.name || ''; n.placeholder = 'e.g. Unit turnover checklist'; fN.appendChild(n); body.appendChild(fN);
+    const fI = el('div', 'field', '<label>Items (one per line)</label>');
+    const ta = el('textarea'); ta.style.minHeight = '200px'; ta.placeholder = 'Test smoke detectors\nTouch up paint\nClean windows\nCheck all outlets'; ta.value = (t.items || []).map(i => i.title).join('\n'); fI.appendChild(ta); body.appendChild(fI);
+    body.appendChild(el('p', 'helper', 'Tip: to also capture trades, areas, and priorities, use “Save current punchlist as template” instead.'));
+    const foot = footRow();
+    if (!isNew) {
+      const del = el('button', 'btn btn-danger', 'Delete'); del.style.flex = '0 0 auto';
+      del.addEventListener('click', () => { if (confirm('Delete this template?')) { data.templates = data.templates.filter(x => x.id !== t.id); save(); if (after) after(); m.close(); } });
+      foot.appendChild(del);
+    }
+    const ok = el('button', 'btn btn-primary', isNew ? 'Create' : 'Save');
+    ok.addEventListener('click', () => {
+      t.name = n.value.trim() || 'Untitled template';
+      const prev = t.items || [];
+      t.items = ta.value.split('\n').map(s => s.trim()).filter(Boolean).map(title => prev.find(x => x.title === title) || { title, notes: '', priority: 'med', category: '', area: '' });
+      if (isNew) data.templates.push(t);
+      save(); if (after) after(); m.close();
+    });
+    foot.appendChild(ok);
+    const m = openSheet(isNew ? 'New template' : 'Edit template', body, foot);
+  }
+
+  // ============================================================
   //  EXPORT hub — Send list, PDF report, backup
   // ============================================================
   function openExport() {
@@ -1305,9 +1391,15 @@
         }
       }
       const st = statusDef(it.status);
-      let imgW = 0, imgH = 0;
-      if (includePhotos && it.photo) { try { const p = doc.getImageProperties(it.photo); const r = Math.min(PHOTO_W / p.width, 150 / p.height); imgW = p.width * r; imgH = p.height * r; } catch (e) { imgW = imgH = 0; } }
-      const textW = CW - (imgW ? imgW + 16 : 0);
+      // photo column — "Before" (main) and optional "After" (completion), stacked
+      const photoSrcs = [];
+      if (includePhotos) { if (it.photo) photoSrcs.push(['Before', it.photo]); if (it.donePhoto) photoSrcs.push(['After', it.donePhoto]); }
+      const maxH = photoSrcs.length > 1 ? 118 : 150;
+      const drawnPhotos = []; let colW = 0, colH = 0;
+      photoSrcs.forEach(([lab, src]) => {
+        try { const p = doc.getImageProperties(src); const r = Math.min(PHOTO_W / p.width, maxH / p.height); const w = p.width * r, h = p.height * r; drawnPhotos.push([lab, src, w, h]); colW = Math.max(colW, w); colH += (colH ? 8 : 0) + (photoSrcs.length > 1 ? 11 : 0) + h; } catch (e) {}
+      });
+      const textW = CW - (colW ? colW + 16 : 0);
       const tx = M + 26;
       const innerW = M + textW;
       doc.setFont('helvetica', 'bold'); doc.setFontSize(11.5);
@@ -1318,7 +1410,7 @@
       doc.setFont('helvetica', 'normal'); doc.setFontSize(9.5);
       const noteLines = it.notes ? doc.splitTextToSize(it.notes, textW - 26) : [];
       const textH = 4 + titleLines.length * 14 + 8 + pr * 18 + 7 + (who ? 13 : 0) + (noteLines.length ? noteLines.length * 12 + 2 : 0);
-      const blockH = Math.max(textH, imgH) + 16;
+      const blockH = Math.max(textH, colH) + 16;
       ensure(blockH);
 
       const c = rgb(st.color);
@@ -1332,7 +1424,15 @@
       if (who) { doc.setFont('helvetica', 'normal'); doc.setFontSize(9); doc.setTextColor(90, 98, 110); doc.text('Assigned to: ' + who, tx, ty); ty += 13; }
       if (noteLines.length) { doc.setFont('helvetica', 'normal'); doc.setFontSize(9.5); doc.setTextColor(70, 78, 90); noteLines.forEach(l => { doc.text(l, tx, ty); ty += 12; }); }
 
-      if (imgW) { try { doc.addImage(it.photo, 'JPEG', PW - M - imgW, y, imgW, imgH); doc.setDrawColor(222, 226, 232); doc.setLineWidth(0.7); doc.rect(PW - M - imgW, y, imgW, imgH); } catch (e) {} }
+      if (drawnPhotos.length) {
+        let py = y;
+        const multi = drawnPhotos.length > 1;
+        drawnPhotos.forEach(([lab, src, w, h]) => {
+          if (multi) { doc.setFont('helvetica', 'bold'); doc.setFontSize(7.5); doc.setTextColor(120, 128, 140); doc.text(lab.toUpperCase(), PW - M - w, py + 8); py += 11; }
+          try { doc.addImage(src, 'JPEG', PW - M - w, py, w, h); doc.setDrawColor(222, 226, 232); doc.setLineWidth(0.7); doc.rect(PW - M - w, py, w, h); } catch (e) {}
+          py += h + 8;
+        });
+      }
 
       y += blockH;
       doc.setDrawColor(236, 239, 242); doc.setLineWidth(1); doc.line(M, y - 8, PW - M, y - 8);
@@ -1755,6 +1855,7 @@
     $('#closeDrawer').addEventListener('click', closeDrawer);
     $('#drawerScrim').addEventListener('click', closeDrawer);
     $('#newProjectBtn').addEventListener('click', () => editProject(null));
+    $('#templatesBtn').addEventListener('click', () => { closeDrawer(); openTemplates(); });
     $('#contactsBtn').addEventListener('click', openContacts);
     $('#plansBtn').addEventListener('click', openPlans);
     $('#plansEntryBtn').addEventListener('click', openPlans);
