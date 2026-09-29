@@ -579,7 +579,172 @@
     const add = el('button', 'btn-block', '+ Add contact');
     add.addEventListener('click', () => editContact(null, renderContacts));
     body.appendChild(add);
+    const imp = el('button', 'btn-block', '⬆ Import from Excel / CSV');
+    imp.style.marginTop = '8px';
+    imp.addEventListener('click', () => pickContactsFile(rows => reviewImport(rows, renderContacts)));
+    body.appendChild(imp);
+    const tmpl = el('p', 'helper'); tmpl.style.textAlign = 'center'; tmpl.style.marginTop = '10px';
+    const tl = el('a', null, 'Download a blank template'); tl.href = 'javascript:void(0)'; tl.style.color = 'var(--primary)'; tl.style.fontWeight = '600';
+    tl.addEventListener('click', downloadContactsTemplate);
+    tmpl.appendChild(document.createTextNode('Columns: Name, Company/Trade, Email, Phone. '));
+    tmpl.appendChild(tl);
+    body.appendChild(tmpl);
     openSheet('Contacts', body);
+  }
+
+  // ---------- Import contacts from Excel / CSV ----------
+  let xlsxReady = null;
+  function loadXlsx() {
+    if (xlsxReady) return xlsxReady;
+    xlsxReady = new Promise((res, rej) => {
+      const s = document.createElement('script');
+      s.src = 'vendor/xlsx.full.min.js';
+      s.onload = () => window.XLSX ? res(window.XLSX) : rej(new Error('xlsx failed'));
+      s.onerror = () => rej(new Error('Could not load the spreadsheet reader'));
+      document.head.appendChild(s);
+    });
+    return xlsxReady;
+  }
+
+  const HEAD = {
+    name: ['name', 'contact', 'full name', 'contact name', 'fullname'],
+    first: ['first', 'first name', 'firstname', 'fname'],
+    last: ['last', 'last name', 'lastname', 'lname', 'surname'],
+    company: ['company', 'trade', 'vendor', 'contractor', 'business', 'firm', 'org', 'organization'],
+    email: ['email', 'e-mail', 'mail', 'email address'],
+    phone: ['phone', 'mobile', 'cell', 'tel', 'telephone', 'phone number', 'number', 'contact number'],
+  };
+  function matchHead(cell) {
+    const s = String(cell == null ? '' : cell).trim().toLowerCase();
+    if (!s) return null;
+    for (const k in HEAD) if (HEAD[k].includes(s)) return k;
+    if (/e-?mail/.test(s)) return 'email';
+    if (/phone|mobile|cell|telephone|\btel\b/.test(s)) return 'phone';
+    if (/company|trade|contractor|vendor|business|firm/.test(s)) return 'company';
+    if (/first/.test(s)) return 'first';
+    if (/last|surname/.test(s)) return 'last';
+    if (/name|contact/.test(s)) return 'name';
+    return null;
+  }
+  const looksEmail = s => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(String(s || '').trim());
+  const looksPhone = s => { const t = String(s || '').trim(); const d = t.replace(/[^\d]/g, ''); return d.length >= 7 && d.length <= 15 && /^[-+()\d\s.]+$/.test(t); };
+
+  function classifyColumns(rows) {
+    const cols = rows.reduce((m, r) => Math.max(m, r.length), 0);
+    const map = {};
+    let emailC = -1, phoneC = -1, eBest = 0.5, pBest = 0.5;
+    for (let c = 0; c < cols; c++) {
+      let em = 0, ph = 0, tot = 0;
+      rows.forEach(r => { const s = String(r[c] == null ? '' : r[c]).trim(); if (!s) return; tot++; if (looksEmail(s)) em++; else if (looksPhone(s)) ph++; });
+      if (tot && em / tot > eBest) { eBest = em / tot; emailC = c; }
+      if (tot && ph / tot > pBest) { pBest = ph / tot; phoneC = c; }
+    }
+    if (emailC >= 0) map.email = emailC;
+    if (phoneC >= 0 && phoneC !== emailC) map.phone = phoneC;
+    const used = new Set([map.email, map.phone].filter(x => x != null));
+    const rem = []; for (let c = 0; c < cols; c++) if (!used.has(c)) rem.push(c);
+    if (rem[0] != null) map.name = rem[0];
+    if (rem[1] != null) map.company = rem[1];
+    return map;
+  }
+
+  function parseContacts(rows) {
+    rows = (rows || []).map(r => Array.isArray(r) ? r : [r]).filter(r => r.some(c => String(c == null ? '' : c).trim() !== ''));
+    if (!rows.length) return [];
+    const headHits = rows[0].map(matchHead);
+    const hasHeader = headHits.filter(Boolean).length >= 1 && !rows[0].some(looksEmail) && !rows[0].some(looksPhone);
+    let map, dataRows;
+    if (hasHeader) {
+      map = {}; headHits.forEach((k, i) => { if (k && map[k] === undefined) map[k] = i; });
+      dataRows = rows.slice(1);
+      if (map.name === undefined && map.first === undefined && map.last === undefined) {
+        Object.assign(map, classifyColumns(dataRows));
+      }
+    } else {
+      dataRows = rows;
+      map = classifyColumns(dataRows);
+    }
+    const get = (r, k) => map[k] !== undefined ? String(r[map[k]] == null ? '' : r[map[k]]).trim() : '';
+    const out = [];
+    dataRows.forEach(r => {
+      let name = get(r, 'name');
+      if (!name && (map.first !== undefined || map.last !== undefined)) name = [get(r, 'first'), get(r, 'last')].filter(Boolean).join(' ').trim();
+      const company = get(r, 'company'), email = get(r, 'email'), phone = get(r, 'phone');
+      if (!name && !company && !email && !phone) return;
+      out.push({ name: name || company || email || phone, company, email, phone });
+    });
+    return out;
+  }
+
+  let contactsImportCb = null;
+  function pickContactsFile(cb) { contactsImportCb = cb; const inp = $('#contactsImportInput'); inp.value = ''; inp.click(); }
+  $('#contactsImportInput').addEventListener('change', function () {
+    const file = this.files && this.files[0];
+    if (!file) return;
+    const cb = contactsImportCb; contactsImportCb = null;
+    toast('Reading file…');
+    const reader = new FileReader();
+    reader.onload = async e => {
+      try {
+        const XLSX = await loadXlsx();
+        const wb = XLSX.read(new Uint8Array(e.target.result), { type: 'array' });
+        const ws = wb.Sheets[wb.SheetNames[0]];
+        const rows = XLSX.utils.sheet_to_json(ws, { header: 1, raw: false, defval: '' });
+        const parsed = parseContacts(rows);
+        if (cb) cb(parsed);
+      } catch (err) { console.error(err); toast('Could not read that file'); }
+    };
+    reader.readAsArrayBuffer(file);
+  });
+
+  function reviewImport(parsed, after) {
+    if (!parsed || !parsed.length) { toast('No contacts found in that file'); return; }
+    // dedupe within import and against existing
+    const keyOf = c => (c.email ? 'e:' + c.email.toLowerCase() : (c.name.toLowerCase() + '|' + (c.phone || '').replace(/[^\d]/g, '')));
+    const existing = new Set(data.contacts.map(keyOf));
+    const seen = new Set();
+    const fresh = [];
+    let dupes = 0;
+    parsed.forEach(c => {
+      const k = keyOf(c);
+      if (existing.has(k) || seen.has(k)) { dupes++; return; }
+      seen.add(k); fresh.push(c);
+    });
+
+    const body = el('div');
+    body.appendChild(el('p', 'helper', `Found <b>${parsed.length}</b> row${parsed.length === 1 ? '' : 's'} — <b>${fresh.length}</b> new contact${fresh.length === 1 ? '' : 's'}${dupes ? `, ${dupes} duplicate${dupes === 1 ? '' : 's'} skipped` : ''}.`));
+    const prev = el('div'); prev.style.maxHeight = '46vh'; prev.style.overflowY = 'auto';
+    (fresh.length ? fresh : parsed).slice(0, 60).forEach(c => {
+      const row = el('div', 'contact-row');
+      row.appendChild(el('div', 'contact-avatar', esc(initials(c.name))));
+      const info = el('div', 'contact-info');
+      info.innerHTML = `<div class="cn">${esc(c.name)}</div><div class="cc">${esc([c.company, c.email, c.phone].filter(Boolean).join(' · ')) || '—'}</div>`;
+      row.appendChild(info); prev.appendChild(row);
+    });
+    if (fresh.length > 60) prev.appendChild(el('p', 'helper', `…and ${fresh.length - 60} more.`));
+    body.appendChild(prev);
+
+    const foot = footRow();
+    const cancel = el('button', 'btn btn-ghost', 'Cancel'); cancel.addEventListener('click', () => modal.close());
+    const imp = el('button', 'btn btn-primary', fresh.length ? `Import ${fresh.length}` : 'Nothing new');
+    if (!fresh.length) imp.disabled = true, imp.style.opacity = '.6';
+    imp.addEventListener('click', () => {
+      fresh.forEach(c => data.contacts.push({ id: uid(), name: c.name, company: c.company || '', email: c.email || '', phone: c.phone || '' }));
+      data.contacts.sort((a, b) => a.name.localeCompare(b.name));
+      save(); if (after) after(); modal.close();
+      toast(`Imported ${fresh.length} contact${fresh.length === 1 ? '' : 's'}`);
+    });
+    foot.appendChild(cancel); foot.appendChild(imp);
+    const modal = openSheet('Import contacts', body, foot);
+  }
+
+  function downloadContactsTemplate() {
+    const csv = 'Name,Company/Trade,Email,Phone\nJoe Sub,ACME Electric,joe@acme.com,(555) 123-4567\nJane Owner,,jane@example.com,555-222-3333\n';
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = el('a'); a.href = url; a.download = 'contacts-template.csv';
+    document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
+    toast('Template downloaded');
   }
   function editContact(c, after) {
     const isNew = !c;

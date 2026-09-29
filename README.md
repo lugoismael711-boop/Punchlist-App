@@ -28,7 +28,9 @@ home screen like a native app and works offline.
 - 🏷️ **Trades / categories** — tag items by trade (Electrical, Plumbing, HVAC, …)
   and filter the list by status.
 - 👥 **Add contacts** — save subs, owners, and teammates (name, company, email,
-  phone). Assign items to them.
+  phone). Assign items to them. **Bulk-import from Excel or CSV** — the columns
+  Name, Company/Trade, Email, Phone are detected automatically (a header row is
+  optional), with a preview and duplicate-skipping before import.
 - 📄 **PDF reports** — generate a clean, shareable PDF: a cover with progress,
   each item (photo, status, due date, notes), and a **plan page per plan with the
   pins drawn on it** — great for owner walk-throughs and closing out subs.
