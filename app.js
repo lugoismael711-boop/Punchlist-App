@@ -288,8 +288,13 @@
     item.completedAt = isClosed(item) ? (item.completedAt || Date.now()) : null;
     save(); render();
     if (item.status === 'done' && !item.donePhoto) {
-      toast('📷 Take the completion photo');
-      pickPhoto(d => { item.donePhoto = d; item.donePhotoOriginal = d; item.doneAnnotations = null; save(); render(); toast('Completion photo added'); });
+      confirmSheet({
+        title: 'Mark complete',
+        message: 'Would you like to add a completion photo showing the finished work?',
+        okLabel: '📷 Add photo',
+        cancelLabel: 'Not now',
+        onOk: () => pickPhoto(d => { item.donePhoto = d; item.donePhotoOriginal = d; item.doneAnnotations = null; save(); render(); toast('Completion photo added'); }),
+      });
     } else {
       toast('→ ' + statusDef(item.status).label);
     }
@@ -385,6 +390,20 @@
   }
   const footRow = () => { const f = el('div'); f.style.display = 'flex'; f.style.gap = '10px'; f.style.width = '100%'; return f; };
 
+  // A small, styled confirm dialog (nicer than the browser's confirm)
+  function confirmSheet(opts) {
+    const body = el('div');
+    const p = el('p', null, opts.message); p.style.fontSize = '.98rem'; p.style.lineHeight = '1.5'; p.style.margin = '4px 0 4px';
+    body.appendChild(p);
+    const foot = footRow();
+    const cancel = el('button', 'btn btn-ghost', opts.cancelLabel || 'Cancel');
+    cancel.addEventListener('click', () => { modal.close(); opts.onCancel && opts.onCancel(); });
+    const ok = el('button', 'btn btn-primary', opts.okLabel || 'OK');
+    ok.addEventListener('click', () => { modal.close(); opts.onOk && opts.onOk(); });
+    foot.appendChild(cancel); foot.appendChild(ok);
+    const modal = openSheet(opts.title || 'Confirm', body, foot);
+  }
+
   // ============================================================
   //  ITEM editor (create + edit)
   // ============================================================
@@ -465,23 +484,18 @@
     // completion ("after") photo
     const doneField = photoField('donePhoto', 'donePhotoOriginal', 'doneAnnotations', '✅ <b>Completion photo</b> (required when the item is Done)', 'Take completion photo');
     body.appendChild(doneField.node);
-    // When the status is set to Done/Verified, prompt for the completion photo right away
+    // When the status is set to Done/Verified, ask whether to add a completion photo
     selStatus.addEventListener('change', () => {
       if ((selStatus.value === 'done' || selStatus.value === 'verified') && !item.donePhoto) {
-        toast('📷 Take the completion photo');
-        pickPhoto(d => { item.donePhoto = d; item.donePhotoOriginal = d; item.doneAnnotations = null; doneField.refresh(); });
+        confirmSheet({
+          title: 'Mark complete',
+          message: 'Would you like to add a completion photo showing the finished work?',
+          okLabel: '📷 Add photo',
+          cancelLabel: 'Not now',
+          onOk: () => pickPhoto(d => { item.donePhoto = d; item.donePhotoOriginal = d; item.doneAnnotations = null; doneField.refresh(); }),
+        });
       }
     });
-    // Block saving a Done/Verified item that has no completion photo (returns false to stop the save)
-    function guardDone() {
-      if ((selStatus.value === 'done' || selStatus.value === 'verified') && !item.donePhoto) {
-        if (confirm('This item is marked Done but has no completion photo.\n\nTap OK to take the photo now (recommended), or Cancel to save without it.')) {
-          pickPhoto(d => { item.donePhoto = d; item.donePhotoOriginal = d; item.doneAnnotations = null; doneField.refresh(); });
-          return false;
-        }
-      }
-      return true;
-    }
 
     // due date + category
     const row2 = el('div', 'field-row');
@@ -538,7 +552,6 @@
     // Save & Text — save the item, then open the text/share composer for it
     const saveTextBtn = el('button', 'btn btn-ghost', '💬 Save &amp; Text'); saveTextBtn.style.whiteSpace = 'nowrap';
     saveTextBtn.addEventListener('click', () => {
-      if (!guardDone()) return;
       const saved = commit();
       modal.close();
       if (onSaved) onSaved(saved);
@@ -546,7 +559,6 @@
     });
     const saveBtn = el('button', 'btn btn-primary', isNew ? 'Add item' : 'Save');
     saveBtn.addEventListener('click', () => {
-      if (!guardDone()) return;
       commit(); modal.close();
       if (onSaved) onSaved(item);
       toast(isNew ? 'Item added' : 'Saved');
