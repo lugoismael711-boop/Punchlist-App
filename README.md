@@ -49,8 +49,12 @@ home screen like a native app and works offline.
   by trade/contractor, person, area, and status.
 - ✅ **Completion (before/after) photos** — add an "after" photo when work is done;
   the report shows BEFORE and AFTER side by side.
-- 📋 **Reusable templates** — save a punchlist as a template and apply it to the
-  next unit (menu ☰ → Templates).
+- 📋 **Template library** — a separate space (menu ☰ → Templates) for reusable
+  master checklists, apart from one-off punchlists. **Import an Excel matrix**
+  (column A = task, one column per area/room with an "X" where it applies), or
+  build one in the app with per-task area toggles. **Applying** a template fans
+  out into an item for every applicable area (pick which areas at apply time).
+  You can also save a punchlist back as a template.
 - ☑️ **Bulk actions** — tap **Select**, choose several items, then set status,
   assign, set a due date, or delete them all at once.
 - 🗂️ **Multiple punchlists** — keep a separate list per job/unit. Open the menu

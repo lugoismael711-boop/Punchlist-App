@@ -50,6 +50,14 @@
   function migrateItems() {
     if (!data.settings) data.settings = { companyName: '', preparedBy: '', logo: '' };
     if (!Array.isArray(data.templates)) data.templates = [];
+    // Templates: tasks (with per-task areas) + template-level areas ("applicable spaces")
+    data.templates.forEach(t => {
+      if (!Array.isArray(t.tasks)) {
+        t.tasks = (t.items || []).map(i => ({ title: i.title || 'Item', priority: i.priority || 'med', category: i.category || '', notes: i.notes || '', areas: i.area ? [i.area] : [] }));
+      }
+      t.tasks.forEach(tk => { if (!Array.isArray(tk.areas)) tk.areas = tk.area ? [tk.area] : []; });
+      if (!Array.isArray(t.areas)) { const s = new Set(); t.tasks.forEach(tk => (tk.areas || []).forEach(a => s.add(a))); t.areas = [...s]; }
+    });
     (data.projects || []).forEach(p => {
       if (!Array.isArray(p.plans)) p.plans = [];
       if (typeof p.nextNum !== 'number') p.nextNum = 1;
@@ -980,19 +988,22 @@
   }
 
   // ============================================================
-  //  TEMPLATES — reusable checklists
+  //  TEMPLATE LIBRARY — reusable checklists that expand across areas
   // ============================================================
+  const templateItemCount = t => (t.tasks || []).reduce((n, tk) => n + ((tk.areas && tk.areas.length) ? tk.areas.length : Math.max(1, (t.areas || []).length || 1)), 0);
+
   function openTemplates() {
     const body = el('div');
-    body.appendChild(el('p', 'helper', 'Reusable checklists. <b>Apply</b> one to add its items to this punchlist, or save the current list as a template to reuse on the next unit.'));
+    body.appendChild(el('p', 'helper', 'Your reusable master checklists — separate from one-off punchlists. Each task can apply to several areas/rooms; <b>applying</b> a template creates an item for every applicable area on the current punchlist.'));
     const list = el('div');
     function renderT() {
       list.innerHTML = '';
-      if (!data.templates.length) list.appendChild(el('p', 'helper', 'No templates yet.'));
+      if (!data.templates.length) list.appendChild(el('p', 'helper', 'No templates yet. Import an Excel checklist or build one below.'));
       data.templates.forEach(t => {
         const row = el('div', 'contact-row');
         const info = el('div', 'contact-info');
-        info.innerHTML = `<div class="cn">${esc(t.name)}</div><div class="cc">${t.items.length} item${t.items.length === 1 ? '' : 's'}</div>`;
+        const nTasks = (t.tasks || []).length, nAreas = (t.areas || []).length, nItems = templateItemCount(t);
+        info.innerHTML = `<div class="cn">${esc(t.name)}</div><div class="cc">${nTasks} task${nTasks === 1 ? '' : 's'}${nAreas ? ' · ' + nAreas + ' area' + (nAreas === 1 ? '' : 's') : ''} · makes ${nItems} item${nItems === 1 ? '' : 's'}</div>`;
         row.appendChild(info);
         const acts = el('div', 'contact-actions'); acts.style.gap = '6px';
         const apply = el('button', 'mini-btn', 'Apply'); apply.style.flex = '0 0 auto';
@@ -1003,38 +1014,151 @@
       });
     }
     renderT(); body.appendChild(list);
-    const saveAs = el('button', 'btn-block', '＋ Save current punchlist as template'); saveAs.style.marginTop = '10px';
-    saveAs.addEventListener('click', () => saveCurrentAsTemplate(renderT));
-    const blank = el('button', 'btn-block', '＋ New blank template'); blank.style.marginTop = '8px';
+
+    const imp = el('button', 'btn-block', '⬆ Import checklist from Excel'); imp.style.marginTop = '12px';
+    imp.addEventListener('click', () => importTemplateExcel(renderT));
+    const blank = el('button', 'btn-block', '＋ New template'); blank.style.marginTop = '8px';
     blank.addEventListener('click', () => editTemplate(null, renderT));
-    body.appendChild(saveAs); body.appendChild(blank);
-    const modal = openSheet('Templates', body);
+    const saveAs = el('button', 'btn-block', '＋ Save current punchlist as template'); saveAs.style.marginTop = '8px';
+    saveAs.addEventListener('click', () => saveCurrentAsTemplate(renderT));
+    body.appendChild(imp); body.appendChild(blank); body.appendChild(saveAs);
+
+    const tmpl = el('p', 'helper'); tmpl.style.textAlign = 'center'; tmpl.style.marginTop = '10px';
+    const tl = el('a', null, 'Download an example Excel checklist'); tl.href = 'javascript:void(0)'; tl.style.color = 'var(--primary)'; tl.style.fontWeight = '600';
+    tl.addEventListener('click', downloadTemplateExcel);
+    tmpl.appendChild(document.createTextNode('Format: column A = task, one column per area with an "X" where it applies. '));
+    tmpl.appendChild(tl);
+    body.appendChild(tmpl);
+
+    const modal = openSheet('Template library', body);
     openTemplates._close = modal.close;
   }
-  function applyTemplate(t) {
-    if (!t.items.length) { toast('That template is empty'); return; }
-    const pid = data.activeProjectId;
-    t.items.forEach(s => data.items.push({ id: uid(), projectId: pid, num: takeNum(pid), title: s.title || 'Item', notes: s.notes || '', photo: '', donePhoto: '', status: 'open', priority: s.priority || 'med', assignedTo: '', dueDate: '', category: s.category || '', area: s.area || '', planId: '', pinX: null, pinY: null, createdAt: Date.now() }));
-    save(); render();
-    if (openTemplates._close) openTemplates._close();
-    toast(`Added ${t.items.length} item${t.items.length === 1 ? '' : 's'} from “${t.name}”`);
+
+  // Expand a template into item stubs, honoring selected areas
+  function expandTemplate(t, areasFilter) {
+    const out = [];
+    (t.tasks || []).forEach(tk => {
+      let areas = (tk.areas && tk.areas.length) ? tk.areas : (t.areas && t.areas.length ? t.areas : ['']);
+      if (areasFilter) areas = areas.filter(a => a === '' || areasFilter.includes(a));
+      areas.forEach(a => out.push({ title: tk.title, notes: tk.notes || '', priority: tk.priority || 'med', category: tk.category || '', area: a }));
+    });
+    return out;
   }
+
+  function applyTemplate(t) {
+    if (!(t.tasks || []).length) { toast('That template has no tasks'); return; }
+    const body = el('div');
+    body.appendChild(el('p', 'helper', `Add the “${esc(t.name)}” checklist to <b>${esc(activeProject().name)}</b>. Choose which areas to apply it to.`));
+    const areaBoxes = [];
+    if ((t.areas || []).length) {
+      const f = el('div', 'field', '<label>Apply to areas</label>');
+      t.areas.forEach(a => { const r = checkboxRow(a, true); f.appendChild(r); areaBoxes.push([a, r._cb]); });
+      body.appendChild(f);
+    }
+    const countP = el('p', 'helper'); countP.style.fontWeight = '600'; body.appendChild(countP);
+    function selectedAreas() { return areaBoxes.length ? areaBoxes.filter(([, cb]) => cb.checked).map(([a]) => a) : null; }
+    function refreshCount() { countP.textContent = expandTemplate(t, selectedAreas()).length + ' items will be added'; }
+    areaBoxes.forEach(([, cb]) => cb.addEventListener('change', refreshCount));
+    refreshCount();
+
+    const foot = footRow();
+    const cancel = el('button', 'btn btn-ghost', 'Cancel'); cancel.addEventListener('click', () => m.close());
+    const ok = el('button', 'btn btn-primary', 'Add items');
+    ok.addEventListener('click', () => {
+      const stubs = expandTemplate(t, selectedAreas());
+      if (!stubs.length) { toast('Pick at least one area'); return; }
+      const pid = data.activeProjectId;
+      stubs.forEach(s => data.items.push({ id: uid(), projectId: pid, num: takeNum(pid), title: s.title || 'Item', notes: s.notes || '', photo: '', donePhoto: '', status: 'open', priority: s.priority, assignedTo: '', dueDate: '', category: s.category, area: s.area, planId: '', pinX: null, pinY: null, createdAt: Date.now() }));
+      save(); render(); m.close();
+      if (openTemplates._close) openTemplates._close();
+      toast(`Added ${stubs.length} item${stubs.length === 1 ? '' : 's'} from “${t.name}”`);
+    });
+    foot.appendChild(cancel); foot.appendChild(ok);
+    const m = openSheet('Apply template', body, foot);
+  }
+
   function saveCurrentAsTemplate(after) {
     const items = projectItems();
     if (!items.length) { toast('No items to save'); return; }
     const name = prompt('Template name:', (activeProject().name || 'Punchlist') + ' checklist');
     if (name === null) return;
-    data.templates.push({ id: uid(), name: (name.trim() || 'Untitled template'), items: items.map(i => ({ title: i.title, notes: i.notes, priority: i.priority, category: i.category, area: i.area })) });
+    // group identical tasks (same title/priority/category) and collect their areas
+    const map = new Map();
+    items.forEach(i => {
+      const key = (i.title || '') + '|' + (i.priority || 'med') + '|' + (i.category || '');
+      if (!map.has(key)) map.set(key, { title: i.title || 'Item', priority: i.priority || 'med', category: i.category || '', notes: '', areas: [] });
+      if (i.area && !map.get(key).areas.includes(i.area)) map.get(key).areas.push(i.area);
+    });
+    const tasks = [...map.values()];
+    const areas = [...new Set(items.map(i => i.area).filter(Boolean))];
+    data.templates.push({ id: uid(), name: (name.trim() || 'Untitled template'), areas, tasks });
     save(); if (after) after(); toast('Template saved');
   }
-  function editTemplate(t, after) {
-    const isNew = !t; t = t || { id: uid(), name: '', items: [] };
+
+  function editTemplate(t, after, forceNew) {
+    const isNew = forceNew || !t; t = t || { id: uid(), name: '', areas: [], tasks: [] };
+    // work on a copy
+    const draft = { id: t.id, name: t.name, areas: (t.areas || []).slice(), tasks: (t.tasks || []).map(tk => ({ ...tk, areas: (tk.areas || []).slice() })) };
     const body = el('div');
     const fN = el('div', 'field', '<label>Template name</label>');
-    const n = el('input'); n.type = 'text'; n.value = t.name || ''; n.placeholder = 'e.g. Unit turnover checklist'; fN.appendChild(n); body.appendChild(fN);
-    const fI = el('div', 'field', '<label>Items (one per line)</label>');
-    const ta = el('textarea'); ta.style.minHeight = '200px'; ta.placeholder = 'Test smoke detectors\nTouch up paint\nClean windows\nCheck all outlets'; ta.value = (t.items || []).map(i => i.title).join('\n'); fI.appendChild(ta); body.appendChild(fI);
-    body.appendChild(el('p', 'helper', 'Tip: to also capture trades, areas, and priorities, use “Save current punchlist as template” instead.'));
+    const n = el('input'); n.type = 'text'; n.value = draft.name || ''; n.placeholder = 'e.g. Unit turnover checklist'; fN.appendChild(n); body.appendChild(fN);
+
+    // Areas (applicable spaces)
+    const fA = el('div', 'field', '<label>Areas / rooms this template covers</label>');
+    const areaChips = el('div'); areaChips.style.display = 'flex'; areaChips.style.flexWrap = 'wrap'; areaChips.style.gap = '6px'; areaChips.style.marginBottom = '8px';
+    const addAreaRow = el('div'); addAreaRow.style.display = 'flex'; addAreaRow.style.gap = '6px';
+    const areaIn = el('input'); areaIn.type = 'text'; areaIn.setAttribute('list', 'areaList'); areaIn.placeholder = 'e.g. Kitchen'; areaIn.style.flex = '1';
+    const areaAdd = el('button', 'mini-btn', 'Add'); areaAdd.style.flex = '0 0 auto';
+    function renderAreas() {
+      areaChips.innerHTML = '';
+      draft.areas.forEach(a => {
+        const c = el('span', 'tag'); c.style.cursor = 'pointer'; c.innerHTML = esc(a) + ' ✕';
+        c.addEventListener('click', () => { draft.areas = draft.areas.filter(x => x !== a); draft.tasks.forEach(tk => tk.areas = tk.areas.filter(x => x !== a)); renderAreas(); renderTasks(); });
+        areaChips.appendChild(c);
+      });
+    }
+    function addArea() { const v = areaIn.value.trim(); if (v && !draft.areas.includes(v)) draft.areas.push(v); areaIn.value = ''; renderAreas(); renderTasks(); }
+    areaAdd.addEventListener('click', addArea);
+    areaIn.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); addArea(); } });
+    addAreaRow.appendChild(areaIn); addAreaRow.appendChild(areaAdd);
+    fA.appendChild(areaChips); fA.appendChild(addAreaRow); body.appendChild(fA);
+
+    // Tasks
+    const fT = el('div', 'field', '<label>Checklist tasks</label>');
+    const taskList = el('div');
+    function renderTasks() {
+      taskList.innerHTML = '';
+      draft.tasks.forEach((tk, idx) => {
+        const row = el('div'); row.style.border = '1px solid var(--line)'; row.style.borderRadius = '10px'; row.style.padding = '8px'; row.style.marginBottom = '8px';
+        const top = el('div'); top.style.display = 'flex'; top.style.gap = '6px'; top.style.alignItems = 'center';
+        const ti = el('input'); ti.type = 'text'; ti.value = tk.title || ''; ti.placeholder = 'Task'; ti.style.flex = '1';
+        ti.addEventListener('input', () => tk.title = ti.value);
+        const del = el('button', 'icon-btn', '<svg viewBox="0 0 24 24" style="width:16px;height:16px"><path d="M18 6L6 18M6 6l12 12"/></svg>'); del.style.flex = '0 0 auto'; del.style.width = '34px'; del.style.height = '34px';
+        del.addEventListener('click', () => { draft.tasks.splice(idx, 1); renderTasks(); });
+        top.appendChild(ti); top.appendChild(del); row.appendChild(top);
+        // area toggles for this task
+        if (draft.areas.length) {
+          const areasWrap = el('div'); areasWrap.style.display = 'flex'; areasWrap.style.flexWrap = 'wrap'; areasWrap.style.gap = '6px'; areasWrap.style.marginTop = '6px';
+          const allC = tk.areas.length === 0;
+          const allChip = el('button', 'chip' + (allC ? ' active' : '')); allChip.textContent = 'All'; allChip.style.padding = '4px 10px';
+          allChip.addEventListener('click', () => { tk.areas = []; renderTasks(); });
+          areasWrap.appendChild(allChip);
+          draft.areas.forEach(a => {
+            const on = tk.areas.includes(a);
+            const c = el('button', 'chip' + (on ? ' active' : '')); c.textContent = a; c.style.padding = '4px 10px';
+            c.addEventListener('click', () => { if (on) tk.areas = tk.areas.filter(x => x !== a); else tk.areas = tk.areas.concat(a); renderTasks(); });
+            areasWrap.appendChild(c);
+          });
+          row.appendChild(areasWrap);
+        }
+        taskList.appendChild(row);
+      });
+    }
+    const addTask = el('button', 'mini-btn', '＋ Add task'); addTask.style.marginTop = '2px';
+    addTask.addEventListener('click', () => { draft.tasks.push({ title: '', priority: 'med', category: '', notes: '', areas: [] }); renderTasks(); });
+    fT.appendChild(taskList); fT.appendChild(addTask); body.appendChild(fT);
+    renderAreas(); renderTasks();
+
     const foot = footRow();
     if (!isNew) {
       const del = el('button', 'btn btn-danger', 'Delete'); del.style.flex = '0 0 auto';
@@ -1043,14 +1167,83 @@
     }
     const ok = el('button', 'btn btn-primary', isNew ? 'Create' : 'Save');
     ok.addEventListener('click', () => {
-      t.name = n.value.trim() || 'Untitled template';
-      const prev = t.items || [];
-      t.items = ta.value.split('\n').map(s => s.trim()).filter(Boolean).map(title => prev.find(x => x.title === title) || { title, notes: '', priority: 'med', category: '', area: '' });
-      if (isNew) data.templates.push(t);
+      draft.name = n.value.trim() || 'Untitled template';
+      draft.tasks = draft.tasks.filter(tk => (tk.title || '').trim()).map(tk => ({ title: tk.title.trim(), priority: tk.priority || 'med', category: tk.category || '', notes: tk.notes || '', areas: (tk.areas || []).filter(a => draft.areas.includes(a)) }));
+      if (isNew) data.templates.push(draft);
+      else { const i = data.templates.findIndex(x => x.id === t.id); if (i >= 0) data.templates[i] = draft; }
       save(); if (after) after(); m.close();
     });
     foot.appendChild(ok);
     const m = openSheet(isNew ? 'New template' : 'Edit template', body, foot);
+  }
+
+  // ---- Excel import / export for templates (matrix: task rows × area columns) ----
+  function pickSpreadsheet(cb) {
+    const inp = document.createElement('input'); inp.type = 'file';
+    inp.accept = '.xlsx,.xls,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel,text/csv';
+    inp.addEventListener('change', () => {
+      const f = inp.files && inp.files[0]; if (!f) return;
+      const rd = new FileReader();
+      rd.onload = async e => { try { const XLSX = await loadXlsx(); const wb = XLSX.read(new Uint8Array(e.target.result), { type: 'array' }); const ws = wb.Sheets[wb.SheetNames[0]]; cb(XLSX.utils.sheet_to_json(ws, { header: 1, raw: false, defval: '' }), f.name); } catch (err) { console.error(err); toast('Could not read that file'); } };
+      rd.readAsArrayBuffer(f);
+    });
+    inp.click();
+  }
+  const normPrio = v => { const s = String(v == null ? '' : v).trim().toLowerCase(); return s.startsWith('h') ? 'high' : s.startsWith('l') ? 'low' : 'med'; };
+  const isMark = v => { const s = String(v == null ? '' : v).trim().toLowerCase(); return s !== '' && !['0', 'no', 'false', 'n', '-', 'na'].includes(s); };
+  function parseTemplateRows(rows, name) {
+    rows = (rows || []).map(r => Array.isArray(r) ? r : [r]).filter(r => r.some(c => String(c == null ? '' : c).trim() !== ''));
+    if (!rows.length) return null;
+    const header = rows[0].map(c => String(c == null ? '' : c).trim());
+    const lower = header.map(h => h.toLowerCase());
+    const tradeIdx = lower.findIndex(h => /trade|category/.test(h));
+    const prioIdx = lower.findIndex(h => /priority/.test(h));
+    const areasListIdx = lower.findIndex(h => /^areas?$|^rooms?$|^spaces?$|applicable/.test(h));
+    const reserved = new Set([0, tradeIdx, prioIdx, areasListIdx].filter(i => i >= 0));
+    const areaCols = [];
+    for (let c = 1; c < header.length; c++) if (!reserved.has(c) && header[c]) areaCols.push(c);
+    const dataRows = rows.slice(1);
+    const tasks = [];
+    const areaSet = new Set();
+    dataRows.forEach(r => {
+      const title = String(r[0] == null ? '' : r[0]).trim(); if (!title) return;
+      let areas = [];
+      areaCols.forEach(c => { if (isMark(r[c])) { areas.push(header[c]); } });
+      if (areasListIdx >= 0) String(r[areasListIdx] == null ? '' : r[areasListIdx]).split(/[;,]/).map(s => s.trim()).filter(Boolean).forEach(a => { areas.push(a); areaSet.add(a); });
+      areas = [...new Set(areas)];
+      tasks.push({ title, priority: prioIdx >= 0 ? normPrio(r[prioIdx]) : 'med', category: tradeIdx >= 0 ? String(r[tradeIdx] == null ? '' : r[tradeIdx]).trim() : '', notes: '', areas });
+    });
+    const areas = areaCols.length ? areaCols.map(c => header[c]) : [...areaSet];
+    return { id: uid(), name: (name || 'Imported template').replace(/\.(xlsx|xls|csv)$/i, ''), areas, tasks };
+  }
+  function importTemplateExcel(after) {
+    pickSpreadsheet((rows, fname) => {
+      const tpl = parseTemplateRows(rows, fname);
+      if (!tpl || !tpl.tasks.length) { toast('No checklist tasks found in that file'); return; }
+      // let them confirm / rename before saving
+      editTemplate(Object.assign(tpl, { _isImport: true }), after, true);
+    });
+  }
+  async function downloadTemplateExcel() {
+    try {
+      const XLSX = await loadXlsx();
+      const aoa = [
+        ['Task', 'Kitchen', 'Living Room', 'Bedroom', 'Bathroom', 'Trade', 'Priority'],
+        ['Check smoke / CO detector', 'X', 'X', 'X', 'X', 'General', 'High'],
+        ['Touch up paint', 'X', 'X', 'X', 'X', 'Paint', 'Medium'],
+        ['Test all outlets / GFCI', 'X', '', 'X', 'X', 'Electrical', 'Medium'],
+        ['Caulk & seal fixtures', '', '', '', 'X', 'Plumbing', 'Low'],
+        ['Clean windows', 'X', 'X', 'X', 'X', 'Cleanup', 'Low'],
+      ];
+      const ws = XLSX.utils.aoa_to_sheet(aoa); ws['!cols'] = [{ wch: 26 }, { wch: 11 }, { wch: 12 }, { wch: 10 }, { wch: 10 }, { wch: 12 }, { wch: 9 }];
+      const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, 'Checklist');
+      const out = XLSX.write(wb, { type: 'array', bookType: 'xlsx' });
+      const blob = new Blob([out], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+      const url = URL.createObjectURL(blob);
+      const a = el('a'); a.href = url; a.download = 'punchlist-template-example.xlsx';
+      document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
+      toast('Example checklist downloaded');
+    } catch (e) { console.error(e); toast('Could not build the file'); }
   }
 
   // ============================================================
