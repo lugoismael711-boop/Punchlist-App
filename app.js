@@ -324,41 +324,8 @@
     data.contacts.forEach(c => { const o = el('option', null, c.name); o.value = c.id; if (item.assignedTo === c.id) o.selected = true; selAssign.appendChild(o); });
     fAssign.appendChild(selAssign); body.appendChild(fAssign);
 
-    // capture current form values into a plain item (for sending before/without saving)
-    function snapshot() {
-      return Object.assign({}, item, {
-        title: inTitle.value.trim() || 'Untitled item',
-        notes: inNotes.value.trim(),
-        status: selStatus.value,
-        priority: selPrio.value,
-        dueDate: inDue.value || '',
-        category: inCat.value.trim(),
-        assignedTo: selAssign.value,
-      });
-    }
-
-    // Send this item — Text / Share / Email
-    const sendWrap = el('div', 'field', '<label>Send this item</label>');
-    const sendRow = el('div', 'detail-photo-actions'); sendRow.style.margin = '0';
-    const tBtn = el('button', 'mini-btn', '<svg viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg> Text');
-    tBtn.addEventListener('click', () => { const s = snapshot(); openTextSheet([s], s.assignedTo); });
-    const sBtn = el('button', 'mini-btn', '<svg viewBox="0 0 24 24"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="M8.6 13.5l6.8 4M15.4 6.5l-6.8 4"/></svg> Share');
-    sBtn.addEventListener('click', () => { const s = snapshot(); shareWithPhotos([s], itemText(s)); });
-    const eBtn = el('button', 'mini-btn', '<svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 6 9-6"/></svg> Email');
-    eBtn.addEventListener('click', () => emailItem(snapshot()));
-    sendRow.appendChild(tBtn); sendRow.appendChild(sBtn); sendRow.appendChild(eBtn);
-    sendWrap.appendChild(sendRow); body.appendChild(sendWrap);
-
-    const foot = footRow();
-    if (!isNew) {
-      const del = el('button', 'btn btn-danger', 'Delete'); del.style.flex = '0 0 auto';
-      del.addEventListener('click', () => {
-        if (confirm('Delete this item?')) { data.items = data.items.filter(i => i.id !== item.id); save(); render(); modal.close(); if (onDeleted) onDeleted(); toast('Deleted'); }
-      });
-      foot.appendChild(del);
-    }
-    const saveBtn = el('button', 'btn btn-primary', isNew ? 'Add item' : 'Save');
-    saveBtn.addEventListener('click', () => {
+    // Write the form values into the item and persist it. Returns the saved item.
+    function commit() {
       item.title = inTitle.value.trim() || 'Untitled item';
       item.notes = inNotes.value.trim();
       item.status = selStatus.value;
@@ -370,11 +337,34 @@
       if (!item.num) item.num = takeNum(item.projectId);
       const idx = data.items.findIndex(i => i.id === item.id);
       if (idx >= 0) data.items[idx] = item; else data.items.push(item);
-      save(); render(); modal.close();
+      save(); render();
+      return item;
+    }
+
+    const foot = footRow();
+    if (!isNew) {
+      const del = el('button', 'btn btn-danger', '<svg viewBox="0 0 24 24" style="width:20px;height:20px"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/></svg>');
+      del.setAttribute('aria-label', 'Delete'); del.style.flex = '0 0 auto'; del.style.padding = '13px 14px';
+      del.addEventListener('click', () => {
+        if (confirm('Delete this item?')) { data.items = data.items.filter(i => i.id !== item.id); save(); render(); modal.close(); if (onDeleted) onDeleted(); toast('Deleted'); }
+      });
+      foot.appendChild(del);
+    }
+    // Save & Text — save the item, then open the text/share composer for it
+    const saveTextBtn = el('button', 'btn btn-ghost', '💬 Save &amp; Text'); saveTextBtn.style.whiteSpace = 'nowrap';
+    saveTextBtn.addEventListener('click', () => {
+      const saved = commit();
+      modal.close();
+      if (onSaved) onSaved(saved);
+      openTextSheet([saved], saved.assignedTo);
+    });
+    const saveBtn = el('button', 'btn btn-primary', isNew ? 'Add item' : 'Save');
+    saveBtn.addEventListener('click', () => {
+      commit(); modal.close();
       if (onSaved) onSaved(item);
       toast(isNew ? 'Item added' : 'Saved');
     });
-    foot.appendChild(saveBtn);
+    foot.appendChild(saveTextBtn); foot.appendChild(saveBtn);
 
     const modal = openSheet(isNew ? 'New item' : 'Edit item', body, foot);
   }

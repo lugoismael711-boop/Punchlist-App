@@ -1,5 +1,5 @@
 /* Punchlist service worker — offline caching of the app shell */
-const CACHE = 'punchlist-v6';
+const CACHE = 'punchlist-v7';
 const ASSETS = [
   './',
   './index.html',
