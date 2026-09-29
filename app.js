@@ -133,10 +133,20 @@
   let currentFilter = 'all';
   let filterTrade = '';
   let filterAssignee = '';
+  let filterArea = '';
+  let filterSearch = '';
 
-  // Refresh the trade/person filter dropdowns from current data (keeps selection)
+  // Refresh the trade/person/area filter dropdowns from current data (keeps selection)
   function populateFilters() {
     const items = projectItems();
+    const areas = [...new Set(items.map(i => (i.area || '').trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b));
+    const areaSel = $('#filterArea');
+    if (areaSel) {
+      areaSel.innerHTML = '<option value="">All areas</option>' + areas.map(a => `<option value="${esc(a)}">${esc(a)}</option>`).join('');
+      if (!areas.some(a => a === filterArea)) filterArea = '';
+      areaSel.value = filterArea;
+      areaSel.classList.toggle('on', !!filterArea);
+    }
     const trades = [...new Set(items.map(i => (i.category || '').trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b));
     const tradeSel = $('#filterTrade');
     if (tradeSel) {
@@ -155,8 +165,8 @@
       aSel.value = filterAssignee;
       aSel.classList.toggle('on', !!filterAssignee);
     }
-    const clr = $('#clearFilters'); if (clr) clr.hidden = !(filterTrade || filterAssignee);
-    const bar = $('#filterBar'); if (bar) bar.hidden = (trades.length === 0 && pool.length === 0);
+    const clr = $('#clearFilters'); if (clr) clr.hidden = !(filterTrade || filterAssignee || filterArea);
+    const bar = $('#filterBar'); if (bar) bar.hidden = (trades.length === 0 && pool.length === 0 && areas.length === 0);
   }
 
   function render() {
@@ -189,6 +199,12 @@
     if (currentFilter !== 'all') list = list.filter(i => (i.status || 'open') === currentFilter);
     if (filterTrade) list = list.filter(i => (i.category || '').trim().toLowerCase() === filterTrade.toLowerCase());
     if (filterAssignee) list = list.filter(i => i.assignedTo === filterAssignee);
+    if (filterArea) list = list.filter(i => (i.area || '').trim().toLowerCase() === filterArea.toLowerCase());
+    if (filterSearch) {
+      const q = filterSearch.toLowerCase();
+      list = list.filter(i => [i.title, i.notes, i.category, i.area, '#' + (i.num || ''), contactName(i.assignedTo)]
+        .some(v => (v || '').toString().toLowerCase().includes(q)));
+    }
 
     const ul = $('#itemList');
     ul.innerHTML = '';
@@ -1724,7 +1740,16 @@
     });
     $('#filterTrade').addEventListener('change', e => { filterTrade = e.target.value; render(); });
     $('#filterAssignee').addEventListener('change', e => { filterAssignee = e.target.value; render(); });
-    $('#clearFilters').addEventListener('click', () => { filterTrade = ''; filterAssignee = ''; render(); });
+    $('#filterArea').addEventListener('change', e => { filterArea = e.target.value; render(); });
+    $('#clearFilters').addEventListener('click', () => { filterTrade = ''; filterAssignee = ''; filterArea = ''; render(); });
+    $('#searchInput').addEventListener('input', e => {
+      filterSearch = e.target.value.trim();
+      $('#searchClear').hidden = !filterSearch;
+      render();
+    });
+    $('#searchClear').addEventListener('click', () => {
+      filterSearch = ''; $('#searchInput').value = ''; $('#searchClear').hidden = true; render();
+    });
 
     $('#menuBtn').addEventListener('click', openDrawer);
     $('#closeDrawer').addEventListener('click', closeDrawer);

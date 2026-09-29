@@ -81,8 +81,18 @@ svg { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width:
 .chip.active { background: var(--primary); border-color: var(--primary); color: #fff; }
 .progress-wrap { flex: 0 0 auto; display: flex; align-items: center; gap: 8px; }
 
-/* Filter bar (trade + person) */
-.filterbar { padding: 0 12px 10px; gap: 8px; }
+/* Search bar */
+.searchbar { padding: 0 12px 8px; }
+.search-wrap { display: flex; align-items: center; gap: 8px; width: 100%; background: var(--bg); border: 1px solid var(--line); border-radius: 10px; padding: 0 10px; }
+.search-wrap svg { width: 18px; height: 18px; color: var(--text-dim); flex: 0 0 auto; }
+.search-wrap input { flex: 1; min-width: 0; border: none; background: transparent; color: var(--text); font-size: .95rem; padding: 10px 0; outline: none; }
+.search-wrap input::placeholder { color: var(--text-dim); }
+.search-wrap button { flex: 0 0 auto; border: none; background: transparent; color: var(--text-dim); display: grid; place-items: center; width: 28px; height: 28px; }
+.search-wrap button svg { width: 16px; height: 16px; }
+
+/* Filter bar (trade + person + area) */
+.filterbar { padding: 0 12px 10px; gap: 8px; flex-wrap: wrap; }
+.filterbar .filter-select { flex: 1 1 28%; min-width: 92px; }
 .filter-select {
   flex: 1 1 0; min-width: 0; padding: 8px 10px; border-radius: 10px;
   border: 1px solid var(--line); background: var(--bg); color: var(--text);
