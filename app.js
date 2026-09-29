@@ -324,6 +324,31 @@
     data.contacts.forEach(c => { const o = el('option', null, c.name); o.value = c.id; if (item.assignedTo === c.id) o.selected = true; selAssign.appendChild(o); });
     fAssign.appendChild(selAssign); body.appendChild(fAssign);
 
+    // capture current form values into a plain item (for sending before/without saving)
+    function snapshot() {
+      return Object.assign({}, item, {
+        title: inTitle.value.trim() || 'Untitled item',
+        notes: inNotes.value.trim(),
+        status: selStatus.value,
+        priority: selPrio.value,
+        dueDate: inDue.value || '',
+        category: inCat.value.trim(),
+        assignedTo: selAssign.value,
+      });
+    }
+
+    // Send this item — Text / Share / Email
+    const sendWrap = el('div', 'field', '<label>Send this item</label>');
+    const sendRow = el('div', 'detail-photo-actions'); sendRow.style.margin = '0';
+    const tBtn = el('button', 'mini-btn', '<svg viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg> Text');
+    tBtn.addEventListener('click', () => { const s = snapshot(); openTextSheet([s], s.assignedTo); });
+    const sBtn = el('button', 'mini-btn', '<svg viewBox="0 0 24 24"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="M8.6 13.5l6.8 4M15.4 6.5l-6.8 4"/></svg> Share');
+    sBtn.addEventListener('click', () => { const s = snapshot(); shareWithPhotos([s], itemText(s)); });
+    const eBtn = el('button', 'mini-btn', '<svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 6 9-6"/></svg> Email');
+    eBtn.addEventListener('click', () => emailItem(snapshot()));
+    sendRow.appendChild(tBtn); sendRow.appendChild(sBtn); sendRow.appendChild(eBtn);
+    sendWrap.appendChild(sendRow); body.appendChild(sendWrap);
+
     const foot = footRow();
     if (!isNew) {
       const del = el('button', 'btn btn-danger', 'Delete'); del.style.flex = '0 0 auto';
@@ -609,7 +634,8 @@
       body.appendChild(b);
     };
     mkOpt('📄 PDF report', 'A shareable PDF with photos, notes, status & due dates', openReport);
-    mkOpt('✉️ Send as text/email', 'A quick text summary via email or your share sheet', openSend);
+    mkOpt('💬 Text (SMS)', 'Open Messages with the punchlist details filled in', () => openTextSheet(scopedItems('open')));
+    mkOpt('✉️ Email / share', 'A summary via email or your share sheet (photos attach where supported)', openSend);
     mkOpt('💾 Export backup', 'Save all your data to a file (move to another device)', exportBackup);
     const modal = openSheet('Share / export', body);
   }
@@ -693,6 +719,112 @@
     if (mailto.length > 1900) { try { await navigator.clipboard.writeText(text); toast('Summary copied to clipboard'); } catch (e) {} }
     window.location.href = mailto;
     if (openSend._close) openSend._close();
+  }
+
+  // ---------- Text (SMS) / per-item send ----------
+  // Detailed text for a single item
+  function itemText(item) {
+    const proj = activeProject();
+    const st = statusDef(item.status);
+    const L = [`Punchlist${item.num ? ' #' + item.num : ''}: ${item.title || 'Item'}`];
+    if (proj.name) L.push(`Project: ${proj.name}${proj.location ? ' — ' + proj.location : ''}`);
+    const bits = [st.label];
+    if (item.priority) bits.push(item.priority === 'high' ? 'High priority' : item.priority === 'low' ? 'Low priority' : 'Med priority');
+    if (item.dueDate) bits.push((isOverdue(item) ? 'OVERDUE ' : 'Due ') + fmtDate(item.dueDate));
+    if (item.category) bits.push(item.category);
+    L.push(bits.join(' · '));
+    if (item.notes) L.push(item.notes);
+    const who = contactName(item.assignedTo); if (who) L.push('Assigned: ' + who);
+    return L.join('\n');
+  }
+  // Compact text for several items
+  function itemsText(items) {
+    const proj = activeProject();
+    const L = [`Punchlist: ${proj.name}`];
+    if (proj.location) L.push(proj.location);
+    L.push('');
+    items.forEach(it => {
+      const box = isClosed(it) ? '[x]' : '[ ]';
+      const bits = [statusDef(it.status).label];
+      if (it.priority === 'high' && !isClosed(it)) bits.push('HIGH');
+      if (it.dueDate) bits.push((isOverdue(it) ? 'OVERDUE ' : 'due ') + fmtDate(it.dueDate));
+      if (it.category) bits.push(it.category);
+      L.push(`${box} #${it.num || ''} ${it.title} — ${bits.join(' · ')}`);
+      if (it.notes) L.push('   ' + it.notes);
+      const who = contactName(it.assignedTo); if (who) L.push('   → ' + who);
+    });
+    return L.join('\n');
+  }
+  function openSms(number, body) {
+    const n = (number || '').replace(/[^\d+*#]/g, '');
+    // "?&body=" works as a prefill on both iOS and Android
+    window.location.href = 'sms:' + n + '?&body=' + encodeURIComponent(body);
+  }
+  async function shareWithPhotos(items, text) {
+    const files = [];
+    if (navigator.canShare) {
+      for (const it of items) {
+        if (it.photo && files.length < 8) {
+          try { const blob = await (await fetch(it.photo)).blob(); files.push(new File([blob], `${(it.title || 'item').replace(/[^a-z0-9]+/gi, '_').slice(0, 30) || 'photo'}.jpg`, { type: 'image/jpeg' })); } catch (e) {}
+        }
+      }
+    }
+    const payload = { title: 'Punchlist', text };
+    if (files.length && navigator.canShare && navigator.canShare({ files })) payload.files = files;
+    if (navigator.share) { try { await navigator.share(payload); return true; } catch (e) { if (e && e.name === 'AbortError') return true; } }
+    try { await navigator.clipboard.writeText(text); toast('Copied — paste into your message'); } catch (e) {}
+    return false;
+  }
+
+  // Text sheet — used for one item (from the editor) or the whole list
+  function openTextSheet(items, preselectContactId) {
+    if (!items || !items.length) { toast('Nothing to text'); return; }
+    const isOne = items.length === 1;
+    const anyPhoto = items.some(i => i.photo);
+    const body = el('div');
+    body.appendChild(el('p', 'helper', 'Opens your Messages app with the details filled in. Choose a saved contact or type a number.'));
+
+    // recipient
+    const withPhone = data.contacts.filter(c => c.phone);
+    const fTo = el('div', 'field', '<label>Text to</label>');
+    const sel = el('select');
+    withPhone.forEach(c => { const o = el('option', null, `${c.name} (${c.phone})`); o.value = c.id; sel.appendChild(o); });
+    const cust = el('option', null, 'Enter number manually…'); cust.value = '__manual'; sel.appendChild(cust);
+    // preselect the assigned contact if they have a phone
+    if (preselectContactId && withPhone.some(c => c.id === preselectContactId)) sel.value = preselectContactId;
+    else if (!withPhone.length) sel.value = '__manual';
+    fTo.appendChild(sel); body.appendChild(fTo);
+    const fManual = el('div', 'field');
+    const man = el('input'); man.type = 'tel'; man.placeholder = '(555) 123-4567'; fManual.appendChild(man); body.appendChild(fManual);
+    function syncManual() { fManual.style.display = sel.value === '__manual' ? 'block' : 'none'; }
+    sel.addEventListener('change', syncManual); syncManual();
+
+    // editable message
+    const fMsg = el('div', 'field', '<label>Message</label>');
+    const ta = el('textarea'); ta.style.minHeight = '150px'; ta.value = isOne ? itemText(items[0]) : itemsText(items);
+    fMsg.appendChild(ta); body.appendChild(fMsg);
+    if (anyPhoto) body.appendChild(el('p', 'helper', '📎 Photos can’t attach to a plain text (SMS). Use “Share with photo” to send the picture via Messages, WhatsApp, etc.'));
+
+    const numOf = () => sel.value === '__manual' ? man.value.trim() : (data.contacts.find(c => c.id === sel.value) || {}).phone || '';
+
+    const foot = footRow();
+    if (anyPhoto) {
+      const sh = el('button', 'btn btn-ghost', 'Share w/ photo');
+      sh.addEventListener('click', async () => { modal.close(); await shareWithPhotos(items, ta.value); });
+      foot.appendChild(sh);
+    }
+    const txt = el('button', 'btn btn-primary', 'Open Messages');
+    txt.addEventListener('click', () => { openSms(numOf(), ta.value); modal.close(); });
+    foot.appendChild(txt);
+    const modal = openSheet(isOne ? 'Text this item' : 'Text punchlist', body, foot);
+  }
+
+  function emailItem(item) {
+    const proj = activeProject();
+    const c = data.contacts.find(x => x.id === item.assignedTo);
+    const email = c && c.email ? c.email : '';
+    const subject = `Punchlist #${item.num || ''}: ${item.title || 'Item'}`.trim();
+    window.location.href = `mailto:${encodeURIComponent(email)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(itemText(item))}`;
   }
 
   // ---------- PDF report ----------
