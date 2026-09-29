@@ -62,6 +62,7 @@
           <svg viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></svg>
         </button>
       </div>
+      <button class="chip" id="selectBtn" type="button">Select</button>
     </div>
     <!-- Filter by trade / person / area -->
     <div class="toolbar filterbar" id="filterBar">
@@ -128,6 +129,18 @@
 
   <!-- ============ MODAL ROOT (dialogs injected here) ============ -->
   <div id="modalRoot"></div>
+
+  <!-- Bulk action bar (selection mode) -->
+  <div id="bulkBar" class="bulk-bar" hidden>
+    <span id="bulkCount">0 selected</span>
+    <div class="bulk-actions">
+      <button type="button" data-act="status">Status</button>
+      <button type="button" data-act="assign">Assign</button>
+      <button type="button" data-act="due">Due</button>
+      <button type="button" data-act="delete">Delete</button>
+    </div>
+    <button type="button" id="bulkDone" aria-label="Done"><svg viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></svg></button>
+  </div>
 
   <!-- Toast -->
   <div id="toast" class="toast" hidden></div>

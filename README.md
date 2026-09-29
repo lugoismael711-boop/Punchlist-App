@@ -45,6 +45,14 @@ home screen like a native app and works offline.
   **Text only** option is there too, pre-addressed to the contact's saved phone.)
 - ✉️ **Email / share** — email or share the punchlist (with photos, where your
   device supports it) straight to a contact or any email address.
+- 🔍 **Search & filter** — search by title/notes/#/trade/area, and filter the list
+  by trade/contractor, person, area, and status.
+- ✅ **Completion (before/after) photos** — add an "after" photo when work is done;
+  the report shows BEFORE and AFTER side by side.
+- 📋 **Reusable templates** — save a punchlist as a template and apply it to the
+  next unit (menu ☰ → Templates).
+- ☑️ **Bulk actions** — tap **Select**, choose several items, then set status,
+  assign, set a due date, or delete them all at once.
 - 🗂️ **Multiple punchlists** — keep a separate list per job/unit. Open the menu
   (☰) to switch, create, or edit them.
 - 💾 **Backup / restore** — export all your data to a file and import it on another

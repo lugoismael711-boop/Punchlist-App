@@ -220,14 +220,24 @@
 
   function itemCard(item) {
     const st = statusDef(item.status);
-    const li = el('li', 'item-card' + (st.done ? ' done' : ''));
+    const sel = selecting && selected.has(item.id);
+    const li = el('li', 'item-card' + (st.done ? ' done' : '') + (sel ? ' selected' : ''));
 
-    // status check button — tap advances through the workflow
-    const check = el('button', 'item-check st-' + st.key);
-    check.setAttribute('aria-label', 'Advance status (currently ' + st.label + ')');
-    if (st.key === 'done' || st.key === 'verified') check.innerHTML = '<svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg>';
-    else if (st.key === 'progress') check.innerHTML = '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="6" fill="currentColor" stroke="none"/></svg>';
-    check.addEventListener('click', e => { e.stopPropagation(); advanceStatus(item.id); });
+    let check;
+    if (selecting) {
+      // selection checkbox
+      check = el('button', 'item-check selbox' + (sel ? ' on' : ''));
+      check.setAttribute('aria-label', sel ? 'Deselect' : 'Select');
+      if (sel) check.innerHTML = '<svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg>';
+      check.addEventListener('click', e => { e.stopPropagation(); toggleSelect(item.id); });
+    } else {
+      // status check button — tap advances through the workflow
+      check = el('button', 'item-check st-' + st.key);
+      check.setAttribute('aria-label', 'Advance status (currently ' + st.label + ')');
+      if (st.key === 'done' || st.key === 'verified') check.innerHTML = '<svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg>';
+      else if (st.key === 'progress') check.innerHTML = '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="6" fill="currentColor" stroke="none"/></svg>';
+      check.addEventListener('click', e => { e.stopPropagation(); advanceStatus(item.id); });
+    }
 
     // thumb
     let thumb;
@@ -267,7 +277,7 @@
     body.appendChild(meta);
 
     li.appendChild(check); li.appendChild(thumb); li.appendChild(body);
-    li.addEventListener('click', () => openItemEditor(item.id));
+    li.addEventListener('click', () => { if (selecting) toggleSelect(item.id); else openItemEditor(item.id); });
     return li;
   }
 
@@ -278,6 +288,70 @@
     item.completedAt = isClosed(item) ? (item.completedAt || Date.now()) : null;
     save(); render();
     toast('→ ' + statusDef(item.status).label);
+  }
+
+  // ---------- Bulk selection ----------
+  let selecting = false;
+  const selected = new Set();
+  function updateBulkBar() {
+    const bar = $('#bulkBar');
+    $('#bulkCount').textContent = `${selected.size} selected`;
+    bar.hidden = !selecting;
+    $('.fab-group') && ($('.fab-group').style.display = selecting ? 'none' : '');
+    const sb = $('#selectBtn'); if (sb) { sb.textContent = selecting ? 'Cancel' : 'Select'; sb.classList.toggle('on', selecting); }
+  }
+  function enterSelect() { selecting = true; selected.clear(); updateBulkBar(); render(); }
+  function exitSelect() { selecting = false; selected.clear(); updateBulkBar(); render(); }
+  function toggleSelect(id) { if (selected.has(id)) selected.delete(id); else selected.add(id); updateBulkBar(); render(); }
+  const selectedItems = () => data.items.filter(i => selected.has(i.id));
+
+  function bulkApply(fn, msg) {
+    const items = selectedItems();
+    if (!items.length) { toast('Select some items first'); return; }
+    items.forEach(fn); save();
+    const n = items.length; exitSelect();
+    toast(msg.replace('%n', n));
+  }
+  function bulkStatus() {
+    if (!selected.size) { toast('Select some items first'); return; }
+    const body = el('div');
+    STATUSES.forEach(s => {
+      const b = el('button', 'btn-block'); b.style.marginTop = '8px'; b.textContent = s.label;
+      b.addEventListener('click', () => { m.close(); bulkApply(it => { it.status = s.key; it.completedAt = isClosed(it) ? (it.completedAt || Date.now()) : null; }, `Set %n item(s) to ${s.label}`); });
+      body.appendChild(b);
+    });
+    const m = openSheet('Set status', body);
+  }
+  function bulkAssign() {
+    if (!selected.size) { toast('Select some items first'); return; }
+    const body = el('div');
+    const none = el('button', 'btn-block', '— Unassign —'); none.style.marginTop = '8px';
+    none.addEventListener('click', () => { m.close(); bulkApply(it => it.assignedTo = '', 'Updated %n item(s)'); });
+    body.appendChild(none);
+    groupByCompany(data.contacts).forEach(([co, people]) => {
+      body.appendChild(el('div', 'dir-group', esc(co)));
+      people.forEach(c => { const b = el('button', 'btn-block', esc(c.name)); b.style.marginTop = '6px'; b.addEventListener('click', () => { m.close(); bulkApply(it => it.assignedTo = c.id, `Assigned %n item(s) to ${c.name}`); }); body.appendChild(b); });
+    });
+    if (!data.contacts.length) body.appendChild(el('p', 'helper', 'No one in your directory yet.'));
+    const m = openSheet('Assign to', body);
+  }
+  function bulkDue() {
+    if (!selected.size) { toast('Select some items first'); return; }
+    const body = el('div');
+    const f = el('div', 'field', '<label>Due date</label>'); const inp = el('input'); inp.type = 'date'; f.appendChild(inp); body.appendChild(f);
+    const foot = footRow();
+    const clr = el('button', 'btn btn-ghost', 'Clear due date'); clr.addEventListener('click', () => { m.close(); bulkApply(it => it.dueDate = '', 'Cleared due date on %n item(s)'); });
+    const ok = el('button', 'btn btn-primary', 'Set'); ok.addEventListener('click', () => { if (!inp.value) { toast('Pick a date'); return; } m.close(); bulkApply(it => it.dueDate = inp.value, 'Set due date on %n item(s)'); });
+    foot.appendChild(clr); foot.appendChild(ok);
+    const m = openSheet('Set due date', body, foot);
+  }
+  function bulkDelete() {
+    const n = selected.size;
+    if (!n) { toast('Select some items first'); return; }
+    if (confirm(`Delete ${n} selected item${n === 1 ? '' : 's'}?`)) {
+      data.items = data.items.filter(i => !selected.has(i.id));
+      save(); exitSelect(); toast(`Deleted ${n} item${n === 1 ? '' : 's'}`);
+    }
   }
 
   // ============================================================
@@ -1849,6 +1923,11 @@
     });
     $('#searchClear').addEventListener('click', () => {
       filterSearch = ''; $('#searchInput').value = ''; $('#searchClear').hidden = true; render();
+    });
+    $('#selectBtn').addEventListener('click', () => { selecting ? exitSelect() : enterSelect(); });
+    $('#bulkDone').addEventListener('click', exitSelect);
+    document.querySelectorAll('#bulkBar .bulk-actions button').forEach(b => {
+      b.addEventListener('click', () => { const a = b.dataset.act; if (a === 'status') bulkStatus(); else if (a === 'assign') bulkAssign(); else if (a === 'due') bulkDue(); else if (a === 'delete') bulkDelete(); });
     });
 
     $('#menuBtn').addEventListener('click', openDrawer);

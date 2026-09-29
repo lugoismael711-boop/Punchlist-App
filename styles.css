@@ -82,8 +82,10 @@ svg { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width:
 .progress-wrap { flex: 0 0 auto; display: flex; align-items: center; gap: 8px; }
 
 /* Search bar */
-.searchbar { padding: 0 12px 8px; }
-.search-wrap { display: flex; align-items: center; gap: 8px; width: 100%; background: var(--bg); border: 1px solid var(--line); border-radius: 10px; padding: 0 10px; }
+.searchbar { padding: 0 12px 8px; gap: 8px; }
+#selectBtn { flex: 0 0 auto; }
+#selectBtn.on { background: var(--primary); border-color: var(--primary); color: #fff; }
+.search-wrap { display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0; background: var(--bg); border: 1px solid var(--line); border-radius: 10px; padding: 0 10px; }
 .search-wrap svg { width: 18px; height: 18px; color: var(--text-dim); flex: 0 0 auto; }
 .search-wrap input { flex: 1; min-width: 0; border: none; background: transparent; color: var(--text); font-size: .95rem; padding: 10px 0; outline: none; }
 .search-wrap input::placeholder { color: var(--text-dim); }
@@ -174,6 +176,25 @@ svg { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width:
   display: grid; place-items: center; color: transparent;
 }
 .item-check.checked { background: var(--success); border-color: var(--success); color: #06240f; }
+.item-card.selected { outline: 2px solid var(--primary); outline-offset: -1px; }
+.item-check.selbox { border-color: var(--primary); }
+.item-check.selbox.on { background: var(--primary); border-color: var(--primary); color: #fff; }
+
+/* Bulk action bar */
+.bulk-bar[hidden] { display: none; }
+.bulk-bar {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 45;
+  background: var(--surface); border-top: 1px solid var(--line);
+  padding: 10px 12px calc(10px + var(--safe-bottom)); box-shadow: 0 -4px 16px rgba(0,0,0,.25);
+  display: flex; align-items: center; gap: 10px;
+}
+.bulk-bar #bulkCount { font-weight: 700; font-size: .78rem; flex: 0 0 auto; white-space: nowrap; }
+.bulk-actions { display: flex; gap: 5px; flex: 1; overflow-x: auto; scrollbar-width: none; }
+.bulk-actions::-webkit-scrollbar { display: none; }
+.bulk-actions button { flex: 0 0 auto; padding: 8px 11px; border-radius: 8px; border: 1px solid var(--line); background: var(--surface-2); color: var(--text); font-weight: 600; font-size: .8rem; }
+.bulk-actions button[data-act="delete"] { color: #fca5a5; background: rgba(239,68,68,.12); border-color: transparent; }
+.bulk-bar #bulkDone { flex: 0 0 auto; width: 38px; height: 36px; display: grid; place-items: center; border-radius: 8px; border: none; background: var(--surface-2); color: var(--text); }
+.bulk-bar #bulkDone svg { width: 18px; height: 18px; }
 .item-check svg { width: 18px; height: 18px; stroke-width: 3; }
 
 /* ---------- Empty state ---------- */
