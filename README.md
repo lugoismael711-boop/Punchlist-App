@@ -32,11 +32,12 @@ home screen like a native app and works offline.
 - 📄 **PDF reports** — generate a clean, shareable PDF: a cover with progress,
   each item (photo, status, due date, notes), and a **plan page per plan with the
   pins drawn on it** — great for owner walk-throughs and closing out subs.
-- 💬 **Text items with details** — text a single item (or the whole list) to a
-  sub or owner: it opens your **Messages** app pre-addressed to the contact's
-  phone with the full details (title #, status, priority, due date, trade, notes,
-  assignee) filled in and editable. Since SMS can't carry a picture, a **"Share
-  with photo"** button sends the details *plus* the photo via Messages/WhatsApp.
+- 💬 **Text items with details (and the photo)** — text a single item (or the
+  whole list) to a sub or owner with the full details (title #, status, priority,
+  due date, trade, notes, assignee) filled in and editable. Tap **📷 Text with
+  photo** and your phone opens **Messages with the picture attached** plus the
+  details — you just pick the contact. (A plain SMS can't carry an image, so a
+  **Text only** option is there too, pre-addressed to the contact's saved phone.)
 - ✉️ **Email / share** — email or share the punchlist (with photos, where your
   device supports it) straight to a contact or any email address.
 - 🗂️ **Multiple punchlists** — keep a separate list per job/unit. Open the menu

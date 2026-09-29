@@ -803,19 +803,22 @@
     const fMsg = el('div', 'field', '<label>Message</label>');
     const ta = el('textarea'); ta.style.minHeight = '150px'; ta.value = isOne ? itemText(items[0]) : itemsText(items);
     fMsg.appendChild(ta); body.appendChild(fMsg);
-    if (anyPhoto) body.appendChild(el('p', 'helper', '📎 Photos can’t attach to a plain text (SMS). Use “Share with photo” to send the picture via Messages, WhatsApp, etc.'));
+    if (anyPhoto) body.appendChild(el('p', 'helper', '📷 <b>Text with photo</b> opens Messages with the picture attached and the details filled in — just pick your contact there. (A plain SMS can’t carry a photo, so <b>Text only</b> sends the details to the number above without it.)'));
 
     const numOf = () => sel.value === '__manual' ? man.value.trim() : (data.contacts.find(c => c.id === sel.value) || {}).phone || '';
 
     const foot = footRow();
     if (anyPhoto) {
-      const sh = el('button', 'btn btn-ghost', 'Share w/ photo');
-      sh.addEventListener('click', async () => { modal.close(); await shareWithPhotos(items, ta.value); });
-      foot.appendChild(sh);
+      const noP = el('button', 'btn btn-ghost', 'Text only'); noP.style.flex = '0 0 auto';
+      noP.addEventListener('click', () => { openSms(numOf(), ta.value); modal.close(); });
+      const withP = el('button', 'btn btn-primary', '📷 Text with photo');
+      withP.addEventListener('click', async () => { modal.close(); await shareWithPhotos(items, ta.value); });
+      foot.appendChild(noP); foot.appendChild(withP);
+    } else {
+      const txt = el('button', 'btn btn-primary', 'Open Messages');
+      txt.addEventListener('click', () => { openSms(numOf(), ta.value); modal.close(); });
+      foot.appendChild(txt);
     }
-    const txt = el('button', 'btn btn-primary', 'Open Messages');
-    txt.addEventListener('click', () => { openSms(numOf(), ta.value); modal.close(); });
-    foot.appendChild(txt);
     const modal = openSheet(isOne ? 'Text this item' : 'Text punchlist', body, foot);
   }
 
