@@ -1057,7 +1057,8 @@
     mkOpt('📄 Report (PDF / Excel)', 'A branded PDF or an Excel spreadsheet of the punchlist', openReport);
     mkOpt('💬 Text (SMS)', 'Open Messages with the punchlist details filled in', () => openTextSheet(scopedItems('open')));
     mkOpt('✉️ Email / share', 'A summary via email or your share sheet (photos attach where supported)', openSend);
-    mkOpt('💾 Export backup', 'Save all your data to a file (move to another device)', exportBackup);
+    mkOpt('☁️ Cloud backup (Microsoft)', 'Back up / restore to your Microsoft OneDrive', openCloud);
+    mkOpt('💾 Export backup (file)', 'Save all your data to a file (move to another device)', exportBackup);
     const modal = openSheet('Share / export', body);
   }
 
@@ -1918,6 +1919,110 @@
       } catch (err) { toast('Could not read that file'); }
     };
     reader.readAsText(file);
+  }
+
+  // ============================================================
+  //  CLOUD BACKUP — Microsoft OneDrive (sign in with Microsoft 365)
+  // ============================================================
+  let msalReady = null, msalApp = null;
+  function loadMsal() {
+    if (msalReady) return msalReady;
+    msalReady = new Promise((res, rej) => {
+      const s = document.createElement('script');
+      s.src = 'vendor/msal-browser.min.js';
+      s.onload = () => window.msal ? res(window.msal) : rej(new Error('Sign-in library failed to load'));
+      s.onerror = () => rej(new Error('Could not load the Microsoft sign-in library'));
+      document.head.appendChild(s);
+    });
+    return msalReady;
+  }
+  const MS_SCOPES = ['Files.ReadWrite', 'User.Read'];
+  const BACKUP_PATH = 'https://graph.microsoft.com/v1.0/me/drive/special/approot:/punchlist-backup.json:/content';
+  async function msalInit(clientId) {
+    const msal = await loadMsal();
+    if (!msalApp || msalApp._pl_clientId !== clientId) {
+      msalApp = new msal.PublicClientApplication({
+        auth: { clientId, authority: 'https://login.microsoftonline.com/common', redirectUri: location.origin + location.pathname },
+        cache: { cacheLocation: 'localStorage' },
+      });
+      msalApp._pl_clientId = clientId;
+      await msalApp.initialize();
+      try { await msalApp.handleRedirectPromise(); } catch (e) {}
+    }
+    return msalApp;
+  }
+  async function msSignIn(clientId) {
+    await msalInit(clientId);
+    if (!msalApp.getAllAccounts().length) await msalApp.loginPopup({ scopes: MS_SCOPES });
+    const acct = msalApp.getAllAccounts()[0];
+    return acct ? (acct.name || acct.username) : '';
+  }
+  async function msToken() {
+    const acct = msalApp.getAllAccounts()[0];
+    const req = { scopes: MS_SCOPES, account: acct };
+    try { return (await msalApp.acquireTokenSilent(req)).accessToken; }
+    catch (e) { return (await msalApp.acquireTokenPopup(req)).accessToken; }
+  }
+  async function cloudBackup() {
+    const token = await msToken();
+    const res = await fetch(BACKUP_PATH, { method: 'PUT', headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
+    if (!res.ok) throw new Error('Upload failed (' + res.status + ')');
+    data.settings.lastBackup = Date.now(); save();
+  }
+  async function cloudRestore() {
+    const token = await msToken();
+    const res = await fetch(BACKUP_PATH, { headers: { Authorization: 'Bearer ' + token } });
+    if (res.status === 404) throw new Error('No cloud backup found yet');
+    if (!res.ok) throw new Error('Download failed (' + res.status + ')');
+    const imported = await res.json();
+    if (!imported || !imported.projects) throw new Error('Cloud file is not a valid backup');
+    data = imported;
+    if (!data.projects.some(p => p.id === data.activeProjectId)) data.activeProjectId = data.projects[0].id;
+    migrateItems(); save(); render();
+  }
+
+  function openCloud() {
+    const S = data.settings;
+    const body = el('div');
+    body.appendChild(el('p', 'helper', 'Back up your whole punchlist (including photos) to your Microsoft <b>OneDrive</b>, and restore it on any device. Sign in with your Microsoft 365 work account.'));
+
+    const fId = el('div', 'field', '<label>Microsoft App (Client) ID</label>');
+    const inId = el('input'); inId.type = 'text'; inId.placeholder = 'paste your Client ID'; inId.value = S.msClientId || '';
+    fId.appendChild(inId); body.appendChild(fId);
+
+    const stepsLink = el('a', null, 'Show one-time setup steps'); stepsLink.href = 'javascript:void(0)'; stepsLink.style.color = 'var(--primary)'; stepsLink.style.fontWeight = '600';
+    const stepsP = el('p', 'helper'); stepsP.appendChild(stepsLink); body.appendChild(stepsP);
+    const steps = el('div', 'helper'); steps.hidden = true; steps.style.background = 'var(--surface-2)'; steps.style.padding = '10px 12px'; steps.style.borderRadius = '10px';
+    steps.innerHTML = 'An admin does this once in <b>Microsoft Entra admin center</b> (entra.microsoft.com):<br>' +
+      '1. <b>Identity → App registrations → New registration</b>.<br>' +
+      '2. Name it "Punchlist". Under <b>Redirect URI</b> choose <b>Single-page application (SPA)</b> and paste:<br><code style="word-break:break-all">' + esc(location.origin + location.pathname) + '</code><br>' +
+      '3. Register, then copy the <b>Application (client) ID</b> into the box above.<br>' +
+      '4. Under <b>API permissions</b>, add Microsoft Graph → Delegated → <b>Files.ReadWrite</b> and <b>User.Read</b>.';
+    body.appendChild(steps);
+    stepsLink.addEventListener('click', () => { steps.hidden = !steps.hidden; stepsLink.textContent = steps.hidden ? 'Show one-time setup steps' : 'Hide setup steps'; });
+
+    const status = el('p', 'helper'); status.style.fontWeight = '600';
+    if (S.lastBackup) status.textContent = 'Last backup: ' + new Date(S.lastBackup).toLocaleString();
+    body.appendChild(status);
+
+    const foot = footRow();
+    const restoreBtn = el('button', 'btn btn-ghost', 'Restore'); restoreBtn.style.flex = '0 0 auto';
+    restoreBtn.addEventListener('click', async () => {
+      const cid = inId.value.trim(); if (!cid) { toast('Paste your Client ID first'); return; }
+      if (!confirm('Replace everything on this device with the cloud backup?')) return;
+      S.msClientId = cid; save();
+      try { status.textContent = 'Signing in…'; await msSignIn(cid); status.textContent = 'Restoring…'; await cloudRestore(); status.textContent = '✅ Restored from OneDrive'; toast('Restored from cloud'); }
+      catch (e) { console.error(e); status.textContent = '⚠️ ' + (e.message || 'Failed'); }
+    });
+    const backupBtn = el('button', 'btn btn-primary', 'Sign in & back up');
+    backupBtn.addEventListener('click', async () => {
+      const cid = inId.value.trim(); if (!cid) { toast('Paste your Client ID first'); return; }
+      S.msClientId = cid; save();
+      try { status.textContent = 'Signing in…'; const who = await msSignIn(cid); status.textContent = 'Backing up' + (who ? ' as ' + who : '') + '…'; await cloudBackup(); status.textContent = '✅ Backed up to OneDrive ' + new Date().toLocaleTimeString(); toast('Backed up to OneDrive'); }
+      catch (e) { console.error(e); status.textContent = '⚠️ ' + (e.message || 'Sign-in failed'); }
+    });
+    foot.appendChild(restoreBtn); foot.appendChild(backupBtn);
+    openSheet('Cloud backup (Microsoft)', body, foot);
   }
 
   // ============================================================
