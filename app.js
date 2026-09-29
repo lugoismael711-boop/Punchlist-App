@@ -114,17 +114,53 @@
   const projectItems = () => data.items.filter(i => i.projectId === data.activeProjectId);
   const contactName = id => { const c = data.contacts.find(x => x.id === id); return c ? c.name : ''; };
   const initials = name => (name || '?').trim().split(/\s+/).map(w => w[0]).slice(0, 2).join('').toUpperCase();
+  // Group contacts by contractor/company -> [[company, [contacts…]], …], "Other" last
+  function groupByCompany(contacts) {
+    const by = {};
+    contacts.forEach(c => { const k = (c.company || '').trim() || 'Other'; (by[k] = by[k] || []).push(c); });
+    return Object.keys(by)
+      .sort((a, b) => a === 'Other' ? 1 : b === 'Other' ? -1 : a.localeCompare(b))
+      .map(co => [co, by[co].slice().sort((a, b) => a.name.localeCompare(b.name))]);
+  }
 
   // ============================================================
   //  RENDER — item list
   // ============================================================
   let currentFilter = 'all';
+  let filterTrade = '';
+  let filterAssignee = '';
+
+  // Refresh the trade/person filter dropdowns from current data (keeps selection)
+  function populateFilters() {
+    const items = projectItems();
+    const trades = [...new Set(items.map(i => (i.category || '').trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b));
+    const tradeSel = $('#filterTrade');
+    if (tradeSel) {
+      tradeSel.innerHTML = '<option value="">All trades</option>' + trades.map(t => `<option value="${esc(t)}">${esc(t)}</option>`).join('');
+      if (!trades.some(t => t === filterTrade)) filterTrade = '';
+      tradeSel.value = filterTrade;
+      tradeSel.classList.toggle('on', !!filterTrade);
+    }
+    const assignedIds = new Set(items.map(i => i.assignedTo).filter(Boolean));
+    const assigned = data.contacts.filter(c => assignedIds.has(c.id));
+    const pool = (assigned.length ? assigned : data.contacts).slice().sort((a, b) => a.name.localeCompare(b.name));
+    const aSel = $('#filterAssignee');
+    if (aSel) {
+      aSel.innerHTML = '<option value="">All people</option>' + pool.map(c => `<option value="${c.id}">${esc(c.name)}${c.company ? ' — ' + esc(c.company) : ''}</option>`).join('');
+      if (!pool.some(c => c.id === filterAssignee)) filterAssignee = '';
+      aSel.value = filterAssignee;
+      aSel.classList.toggle('on', !!filterAssignee);
+    }
+    const clr = $('#clearFilters'); if (clr) clr.hidden = !(filterTrade || filterAssignee);
+    const bar = $('#filterBar'); if (bar) bar.hidden = (trades.length === 0 && pool.length === 0);
+  }
 
   function render() {
     const proj = activeProject();
     $('#projectName').textContent = proj.name;
     const items = projectItems();
     const closed = items.filter(isClosed).length;
+    populateFilters();
     $('#projectMeta').textContent = proj.location ? proj.location : `${items.length} item${items.length === 1 ? '' : 's'}`;
 
     const pct = items.length ? Math.round((closed / items.length) * 100) : 0;
@@ -147,10 +183,15 @@
       return b.createdAt - a.createdAt;
     });
     if (currentFilter !== 'all') list = list.filter(i => (i.status || 'open') === currentFilter);
+    if (filterTrade) list = list.filter(i => (i.category || '').trim().toLowerCase() === filterTrade.toLowerCase());
+    if (filterAssignee) list = list.filter(i => i.assignedTo === filterAssignee);
 
     const ul = $('#itemList');
     ul.innerHTML = '';
     $('#emptyState').classList.toggle('hidden', items.length !== 0);
+    if (items.length && !list.length) {
+      ul.appendChild(el('li', 'helper', 'No items match the current filters.'));
+    }
     list.forEach(item => ul.appendChild(itemCard(item)));
   }
 
@@ -223,7 +264,11 @@
     const head = el('div', 'sheet-head');
     head.appendChild(el('h2', null, esc(title)));
     const x = el('button', 'icon-btn', '<svg viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></svg>');
+    x.type = 'button'; x.setAttribute('aria-label', 'Close');
+    // close on pointerup as well as click so a tap that first dismisses the
+    // on-screen keyboard still closes the sheet on the same press (iOS)
     x.addEventListener('click', close);
+    x.addEventListener('pointerup', e => { e.preventDefault(); close(); });
     head.appendChild(x);
     const body = el('div', 'sheet-body'); body.appendChild(bodyNode);
     sheet.appendChild(head); sheet.appendChild(body);
@@ -317,11 +362,15 @@
     fCat.appendChild(inCat); row2.appendChild(fCat);
     body.appendChild(row2);
 
-    // assignee
+    // assignee — grouped by contractor / company (the directory)
     const fAssign = el('div', 'field', '<label>Assign to</label>');
     const selAssign = el('select');
     const none = el('option', null, '— Unassigned —'); none.value = ''; selAssign.appendChild(none);
-    data.contacts.forEach(c => { const o = el('option', null, c.name); o.value = c.id; if (item.assignedTo === c.id) o.selected = true; selAssign.appendChild(o); });
+    groupByCompany(data.contacts).forEach(([co, people]) => {
+      const og = document.createElement('optgroup'); og.label = co;
+      people.forEach(c => { const o = el('option', null, c.name); o.value = c.id; if (item.assignedTo === c.id) o.selected = true; og.appendChild(o); });
+      selAssign.appendChild(og);
+    });
     fAssign.appendChild(selAssign); body.appendChild(fAssign);
 
     // Write the form values into the item and persist it. Returns the saved item.
@@ -562,17 +611,22 @@
     const body = el('div'); const list = el('div');
     function renderContacts() {
       list.innerHTML = '';
-      if (!data.contacts.length) list.appendChild(el('p', 'helper', 'No contacts yet. Add subs, owners, or teammates so you can assign items and send them the list.'));
-      data.contacts.forEach(c => {
+      if (!data.contacts.length) { list.appendChild(el('p', 'helper', 'No one in your directory yet. Add subs, owners, and teammates — or import them from Excel/CSV below — then assign punchlist items to them.')); return; }
+      const contactRow = c => {
         const row = el('div', 'contact-row');
         row.appendChild(el('div', 'contact-avatar', esc(initials(c.name))));
         const info = el('div', 'contact-info');
-        info.innerHTML = `<div class="cn">${esc(c.name)}</div><div class="cc">${esc([c.company, c.email, c.phone].filter(Boolean).join(' · '))}</div>`;
+        info.innerHTML = `<div class="cn">${esc(c.name)}</div><div class="cc">${esc([c.email, c.phone].filter(Boolean).join(' · ')) || '—'}</div>`;
         row.appendChild(info);
         const acts = el('div', 'contact-actions');
         const ed = el('button', 'icon-btn', '<svg viewBox="0 0 24 24" style="width:18px;height:18px"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>');
         ed.addEventListener('click', () => editContact(c, renderContacts));
-        acts.appendChild(ed); row.appendChild(acts); list.appendChild(row);
+        acts.appendChild(ed); row.appendChild(acts);
+        return row;
+      };
+      groupByCompany(data.contacts).forEach(([co, people]) => {
+        list.appendChild(el('div', 'dir-group', esc(co) + ` · ${people.length}`));
+        people.forEach(c => list.appendChild(contactRow(c)));
       });
     }
     renderContacts(); body.appendChild(list);
@@ -589,7 +643,7 @@
     tmpl.appendChild(document.createTextNode('Columns: Name, Company/Trade, Email, Phone. '));
     tmpl.appendChild(tl);
     body.appendChild(tmpl);
-    openSheet('Contacts', body);
+    openSheet('Directory', body);
   }
 
   // ---------- Import contacts from Excel / CSV ----------
@@ -1507,7 +1561,7 @@
   //  Wire up UI
   // ============================================================
   function syncFilterChips() {
-    document.querySelectorAll('.chip').forEach(c => c.classList.toggle('active', c.dataset.filter === currentFilter));
+    document.querySelectorAll('#filterChips .chip').forEach(c => c.classList.toggle('active', c.dataset.filter === currentFilter));
   }
 
   function init() {
@@ -1517,9 +1571,12 @@
     $('#addPhotoBtn').addEventListener('click', () => pickPhoto(dataUrl => openItemEditor(null, dataUrl)));
     $('#addNoteBtn').addEventListener('click', () => openItemEditor(null));
 
-    document.querySelectorAll('.chip').forEach(chip => {
+    document.querySelectorAll('#filterChips .chip').forEach(chip => {
       chip.addEventListener('click', () => { currentFilter = chip.dataset.filter; syncFilterChips(); render(); });
     });
+    $('#filterTrade').addEventListener('change', e => { filterTrade = e.target.value; render(); });
+    $('#filterAssignee').addEventListener('change', e => { filterAssignee = e.target.value; render(); });
+    $('#clearFilters').addEventListener('click', () => { filterTrade = ''; filterAssignee = ''; render(); });
 
     $('#menuBtn').addEventListener('click', openDrawer);
     $('#closeDrawer').addEventListener('click', closeDrawer);
