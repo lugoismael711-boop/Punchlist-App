@@ -287,7 +287,12 @@
     item.status = nextStatus(item.status || 'open');
     item.completedAt = isClosed(item) ? (item.completedAt || Date.now()) : null;
     save(); render();
-    toast('→ ' + statusDef(item.status).label);
+    if (item.status === 'done' && !item.donePhoto) {
+      toast('📷 Take the completion photo');
+      pickPhoto(d => { item.donePhoto = d; item.donePhotoOriginal = d; item.doneAnnotations = null; save(); render(); toast('Completion photo added'); });
+    } else {
+      toast('→ ' + statusDef(item.status).label);
+    }
   }
 
   // ---------- Bulk selection ----------
@@ -433,9 +438,9 @@
         }
       }
       refresh(); wrap.appendChild(inner);
-      return wrap;
+      return { node: wrap, refresh };
     }
-    body.appendChild(photoField('photo', 'photoOriginal', 'annotations', null, 'Add photo'));
+    body.appendChild(photoField('photo', 'photoOriginal', 'annotations', null, 'Add photo').node);
 
     const fTitle = el('div', 'field', '<label>Title</label>');
     const inTitle = el('input'); inTitle.type = 'text'; inTitle.placeholder = 'e.g. Touch up paint by window'; inTitle.value = item.title || '';
@@ -458,7 +463,25 @@
     body.appendChild(row1);
 
     // completion ("after") photo
-    body.appendChild(photoField('donePhoto', 'donePhotoOriginal', 'doneAnnotations', '✅ <b>Completion photo</b> (after the work is done)', 'Add completion photo'));
+    const doneField = photoField('donePhoto', 'donePhotoOriginal', 'doneAnnotations', '✅ <b>Completion photo</b> (required when the item is Done)', 'Take completion photo');
+    body.appendChild(doneField.node);
+    // When the status is set to Done/Verified, prompt for the completion photo right away
+    selStatus.addEventListener('change', () => {
+      if ((selStatus.value === 'done' || selStatus.value === 'verified') && !item.donePhoto) {
+        toast('📷 Take the completion photo');
+        pickPhoto(d => { item.donePhoto = d; item.donePhotoOriginal = d; item.doneAnnotations = null; doneField.refresh(); });
+      }
+    });
+    // Block saving a Done/Verified item that has no completion photo (returns false to stop the save)
+    function guardDone() {
+      if ((selStatus.value === 'done' || selStatus.value === 'verified') && !item.donePhoto) {
+        if (confirm('This item is marked Done but has no completion photo.\n\nTap OK to take the photo now (recommended), or Cancel to save without it.')) {
+          pickPhoto(d => { item.donePhoto = d; item.donePhotoOriginal = d; item.doneAnnotations = null; doneField.refresh(); });
+          return false;
+        }
+      }
+      return true;
+    }
 
     // due date + category
     const row2 = el('div', 'field-row');
@@ -515,6 +538,7 @@
     // Save & Text — save the item, then open the text/share composer for it
     const saveTextBtn = el('button', 'btn btn-ghost', '💬 Save &amp; Text'); saveTextBtn.style.whiteSpace = 'nowrap';
     saveTextBtn.addEventListener('click', () => {
+      if (!guardDone()) return;
       const saved = commit();
       modal.close();
       if (onSaved) onSaved(saved);
@@ -522,6 +546,7 @@
     });
     const saveBtn = el('button', 'btn btn-primary', isNew ? 'Add item' : 'Save');
     saveBtn.addEventListener('click', () => {
+      if (!guardDone()) return;
       commit(); modal.close();
       if (onSaved) onSaved(item);
       toast(isNew ? 'Item added' : 'Saved');
